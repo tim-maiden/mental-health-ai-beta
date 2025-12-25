@@ -17,7 +17,6 @@ COPY requirements.txt .
 # 1. Standard requirements
 # 2. GPU-specific ONNX Runtime (critical for the H100)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --upgrade torch && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir "optimum[onnxruntime-gpu]"
 

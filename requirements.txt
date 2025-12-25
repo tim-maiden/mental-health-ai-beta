@@ -1,4 +1,4 @@
-accelerate>=0.27.2,<0.29.0
+accelerate>=0.27.2
 datasets
 evaluate 
 kagglehub
@@ -12,6 +12,6 @@ sentencepiece
 supabase
 tiktoken
 transformers>=4.39.0
-torch
+torch>=2.6.0
 wandb
 boto3

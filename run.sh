@@ -62,7 +62,6 @@ elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     # --- CLOUD (CUDA) ---
     log "Configuring Cloud Environment..."
     pip install --upgrade pip --break-system-packages
-    pip install --upgrade torch --break-system-packages
     pip install -r requirements.txt --break-system-packages
     log "Installing ONNX Runtime GPU..."
     pip install "optimum[onnxruntime-gpu]" --break-system-packages
