@@ -1,0 +1,25 @@
+# Ignore git files
+.git
+.gitignore
+
+# Ignore local python environments
+venv/
+.env
+__pycache__/
+*.pyc
+
+# Ignore local deployment files
+deploy_image.sh
+create_pod.sh
+
+# Ignore local data and outputs (we should fetch/generate these in the cloud)
+data/
+outputs/
+models/
+
+# Ignore secrets (NEVER bake secrets into the image)
+secrets.json
+
+# Ignore system files
+.DS_Store
+

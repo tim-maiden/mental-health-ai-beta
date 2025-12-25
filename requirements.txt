@@ -1,0 +1,17 @@
+accelerate>=0.27.2,<0.29.0
+datasets
+evaluate 
+kagglehub
+matplotlib
+openai
+pandas
+python-dotenv
+scikit-learn
+seaborn
+sentencepiece
+supabase
+tiktoken
+transformers>=4.39.0,<4.40.0
+torch
+wandb
+boto3
