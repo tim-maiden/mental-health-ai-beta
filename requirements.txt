@@ -11,7 +11,7 @@ seaborn
 sentencepiece
 supabase
 tiktoken
-transformers>=4.39.0,<4.40.0
+transformers>=4.39.0
 torch
 wandb
 boto3

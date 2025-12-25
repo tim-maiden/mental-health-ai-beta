@@ -52,7 +52,7 @@ if [ "$DEPLOY_ENV" == "local" ]; then
         
         log "Installing dependencies..."
         pip install -r requirements.txt
-        pip install "optimum[onnxruntime]"
+        pip install "optimum[onnxruntime]==1.18.0"
     else
         source venv/bin/activate
     fi
@@ -62,6 +62,7 @@ elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     # --- CLOUD (CUDA) ---
     log "Configuring Cloud Environment..."
     pip install --upgrade pip --break-system-packages
+    pip install --upgrade torch --break-system-packages
     pip install -r requirements.txt --break-system-packages
     log "Installing ONNX Runtime GPU..."
     pip install "optimum[onnxruntime-gpu]" --break-system-packages

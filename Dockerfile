@@ -1,5 +1,6 @@
 # Use RunPod's official PyTorch base image (includes CUDA, Python, PyTorch)
-FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel
+# FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 
 # Set the working directory
 WORKDIR /app
@@ -16,6 +17,7 @@ COPY requirements.txt .
 # 1. Standard requirements
 # 2. GPU-specific ONNX Runtime (critical for the H100)
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --upgrade torch && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir "optimum[onnxruntime-gpu]"
 
