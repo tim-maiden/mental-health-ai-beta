@@ -119,3 +119,14 @@ log "--- Step 6: Upload to S3 ---"
 python scripts/upload_model.py --local-dir models --s3-prefix models
 
 log "--- Pipeline Complete! ---"
+
+# Step 7: Terminate pod if running on RunPod
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    log "--- Step 7: Terminating Pod ---"
+    if [ -f "./scripts/terminate_pod.sh" ]; then
+        ./scripts/terminate_pod.sh
+    else
+        log "Warning: terminate_pod.sh not found. Pod will continue running."
+        log "You may need to terminate it manually via the RunPod console or CLI."
+    fi
+fi
