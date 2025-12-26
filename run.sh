@@ -1,24 +1,37 @@
 #!/bin/bash
 set -e  # Exit immediately if a command exits with a non-zero status
 
+# --- Defaults ---
+CLEAN=true
+DEPLOY_ENV="local"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="run_${TIMESTAMP}.log"
+
+# Redirect all output to log file while keeping stdout
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 # --- Helpers ---
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
+
+upload_logs() {
+    if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+        log "Uploading logs to S3..."
+        # Upload using the python script, putting logs in a timestamped folder
+        python scripts/upload_logs.py --log-file "$LOG_FILE" --s3-prefix "logs/$TIMESTAMP" || log "Warning: Failed to upload logs."
+    fi
 }
 
 error_handler() {
     log "Error occurred in script at line: $1"
     log "Last command exit code: $?"
     log "Pipeline failed."
+    upload_logs
     exit 1
 }
 
 trap 'error_handler $LINENO' ERR
-
-# --- Defaults ---
-CLEAN=true
-DEPLOY_ENV="local"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # --- Argument Parsing ---
 while [[ "$#" -gt 0 ]]; do
@@ -159,6 +172,9 @@ python scripts/inference.py
 
 log "--- Step 6: Upload to S3 ---"
 python scripts/upload_model.py --local-dir models --s3-prefix models
+
+# Upload logs at the end of a successful run
+upload_logs
 
 log "--- Pipeline Complete! ---"
 
