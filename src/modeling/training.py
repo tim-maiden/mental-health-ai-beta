@@ -53,7 +53,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         gradient_accumulation_steps=grad_accum_steps,
         num_train_epochs=num_epochs,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_ambiguous_loss",
+        metric_for_best_model="eval_f1",
         fp16=fp16_mode,
         bf16=bf16_mode,
         dataloader_pin_memory=pin_memory,

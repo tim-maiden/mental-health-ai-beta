@@ -17,7 +17,7 @@ from src.config import (
 # Safe Prototypes: Only include safe items with density below this threshold
 # Lower threshold = stricter filtering (removes borderline "sad but safe" posts)
 # This forces the model to rely more on text signal rather than subreddit context
-SAFE_DENSITY_THRESHOLD = 0.25  # Relaxed from 0.15 to include hard negatives (sad but safe)
+SAFE_DENSITY_THRESHOLD = 0.45  # Relaxed from 0.25 to include hard negatives (sad but safe)
 RISK_DENSITY_THRESHOLD = 0.30  # Relaxed from 0.40 to include subtle risk
 
 def main():
@@ -176,7 +176,7 @@ def main():
     # Safety check: Warn if threshold is too aggressive
     if len(safe_prototypes) < 1000:
         print(f"\n⚠️  WARNING: Only {len(safe_prototypes)} safe prototypes found with threshold {SAFE_DENSITY_THRESHOLD}.")
-        print("   This may cause class imbalance. Consider relaxing SAFE_DENSITY_THRESHOLD to 0.18-0.20 if training fails.")
+        print("   This may cause class imbalance. Consider relaxing SAFE_DENSITY_THRESHOLD to 0.50-0.55 if training fails.")
     
     # F. Balance & Merge (Margin-Based / No-Fly Zone)
     # ---------------------------------------------------------
