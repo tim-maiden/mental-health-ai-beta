@@ -20,7 +20,7 @@ EVAL_FILES = {
     "ambiguous": TEST_AMBIGUOUS_FILE
 }     
 OUTPUT_DIR = MODEL_OUTPUT_DIR
-NUM_EPOCHS = 3
+NUM_EPOCHS = 5
 
 def main():
     print(f"--- Loading Data from Local Files ---")

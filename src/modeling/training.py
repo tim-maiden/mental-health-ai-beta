@@ -2,8 +2,11 @@ import os
 import numpy as np
 import evaluate
 import warnings
+import torch
+from torch import nn
 from transformers import (
-    TrainingArguments
+    TrainingArguments,
+    Trainer
 )
 
 # Suppress Warnings
@@ -36,12 +39,11 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     return TrainingArguments(
         output_dir=output_dir,
         overwrite_output_dir=True,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",  # Updated from evaluation_strategy for transformers >= 4.41
         save_strategy="epoch",
         learning_rate=1e-5,
         warmup_ratio=0.1,
         weight_decay=0.1,  # Increased for better regularization
-        label_smoothing_factor=0.1, # Added to prevent overconfidence
         lr_scheduler_type="cosine",
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
