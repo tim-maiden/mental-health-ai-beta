@@ -173,6 +173,11 @@ def main():
     print(f"Safe Prototypes (Density < {SAFE_DENSITY_THRESHOLD}): {len(safe_prototypes)}")
     print(f"Ambiguous Safe Dropped (Density >= {SAFE_DENSITY_THRESHOLD}): {n_dropped_safe} (Radioactive Zone)")
     
+    # Safety check: Warn if threshold is too aggressive
+    if len(safe_prototypes) < 1000:
+        print(f"\n⚠️  WARNING: Only {len(safe_prototypes)} safe prototypes found with threshold {SAFE_DENSITY_THRESHOLD}.")
+        print("   This may cause class imbalance. Consider relaxing SAFE_DENSITY_THRESHOLD to 0.18-0.20 if training fails.")
+    
     # F. Balance & Merge (Margin-Based / No-Fly Zone)
     # ---------------------------------------------------------
     # STRATEGY: Train ONLY on Prototypes. 
@@ -194,6 +199,9 @@ def main():
         safe_balanced = safe_prototypes.sample(n=target_size, random_state=42)
     else:
         # If we don't have enough pure safe posts, we take what we have
+        if len(safe_prototypes) < target_size * 0.8:
+            print(f"⚠️  WARNING: Safe prototypes ({len(safe_prototypes)}) are significantly fewer than risk prototypes ({target_size}).")
+            print("   This will create class imbalance. Consider relaxing SAFE_DENSITY_THRESHOLD.")
         safe_balanced = safe_prototypes
         
     # 3. Combine (CRITICAL: EXCLUDE safe_hard / safe_mid entirely)
