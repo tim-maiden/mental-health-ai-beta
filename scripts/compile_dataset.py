@@ -156,39 +156,41 @@ def main():
     # Instead, we select ONLY "Clean Safe" (Low Density).
     # We DROP the "Ambiguous" / "Hard Negative" region entirely from training.
     
-    # Safe Prototypes: Density < 0.2
-    safe_clean = train_safe_all_full[train_safe_all_full['risk_density_p2'] < 0.2]
+    # Safe Prototypes: Density < 0.25
+    safe_prototypes = train_safe_all_full[train_safe_all_full['risk_density_p2'] < 0.25]
     
-    # Ambiguous / Hard Negatives: Density >= 0.2 (DROPPED)
+    # Ambiguous / Hard Negatives: Density >= 0.25 (DROPPED)
     # We log count for info, but do not use them.
-    n_dropped_safe = len(train_safe_all_full) - len(safe_clean)
+    n_dropped_safe = len(train_safe_all_full) - len(safe_prototypes)
     
-    print(f"Safe Prototypes (Density < 0.2): {len(safe_clean)}")
-    print(f"Ambiguous Safe Dropped (Density >= 0.2): {n_dropped_safe} (Radioactive Zone)")
+    print(f"Safe Prototypes (Density < 0.25): {len(safe_prototypes)}")
+    print(f"Ambiguous Safe Dropped (Density >= 0.25): {n_dropped_safe} (Radioactive Zone)")
     
-    # F. Balance & Merge
-    # Target: 50% Risk Prototypes, 50% Safe Prototypes
+    # F. Balance & Merge (Margin-Based / No-Fly Zone)
+    # ---------------------------------------------------------
+    # STRATEGY: Train ONLY on Prototypes. 
+    # DROP the "Radioactive Zone" (Safe posts that look like Risk).
+    # DROP the "Noise" (Risk posts that don't look like Risk).
     
+    # 1. Define Prototypes
+    # Risk Prototypes: Already filtered in Step C (train_risk_clean_full)
+    # Safe Prototypes: Only Low Density (Pure Safe)
+    
+    # 2. Balance (Downsample Safe to match Risk)
     target_size = len(train_risk_clean_full)
     print(f"\n--- Balancing Dataset (Target Class Size: {target_size}) ---")
     
-    if len(safe_clean) > target_size:
-        print(f"Downsampling Safe Prototypes ({len(safe_clean)} -> {target_size})...")
-        safe_clean_balanced = safe_clean.sample(n=target_size, random_state=42)
+    if len(safe_prototypes) > target_size:
+        print(f"Downsampling Safe Prototypes ({len(safe_prototypes)} -> {target_size})...")
+        safe_balanced = safe_prototypes.sample(n=target_size, random_state=42)
     else:
-        print(f"Warning: Not enough Safe Prototypes ({len(safe_clean)}) to match Risk ({target_size}). Using all.")
-        safe_clean_balanced = safe_clean
-        # Upsample if needed? For now, let's keep it clean. 
-        # Actually, imbalance might be okay if not severe, but let's upsample if significantly smaller
-        if len(safe_clean) < target_size * 0.5:
-             print("Severe imbalance detected. Upsampling Safe Prototypes...")
-             safe_clean_balanced = safe_clean.sample(n=target_size, replace=True, random_state=42)
-
-
-    # 3. Combine
+        # If we don't have enough pure safe posts, we take what we have
+        safe_balanced = safe_prototypes
+        
+    # 3. Combine (CRITICAL: EXCLUDE safe_hard / safe_mid entirely)
     final_train = pd.concat([
         train_risk_clean_full,
-        safe_clean_balanced
+        safe_balanced
     ])
     
     # Shuffle
@@ -196,7 +198,8 @@ def main():
     
     print(f"Final Training Distribution (Margin-Based):")
     print(f" - Risk Prototypes: {len(train_risk_clean_full)}")
-    print(f" - Safe Prototypes: {len(safe_clean_balanced)}")
+    print(f" - Safe Prototypes: {len(safe_balanced)}")
+    print(f" - Radioactive/Ambiguous Dropped: {len(train_safe_all_full) - len(safe_prototypes)}")
     print(f" - Total: {len(final_train)}")
     
     # ==========================================================

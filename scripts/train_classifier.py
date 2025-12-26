@@ -63,9 +63,18 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 
     def preprocess_function(examples):
-        return tokenizer(examples["text"], truncation=True, max_length=512)
+        # Tokenize
+        tokenized = tokenizer(examples["text"], truncation=True, max_length=512)
+        # Rename 'label' to 'labels' to match Model signature exactly
+        tokenized["labels"] = examples["label"]
+        return tokenized
 
-    tokenized_datasets = dataset.map(preprocess_function, batched=True)
+    # CRITICAL FIX: Remove the raw 'text' and old 'label' columns so Trainer doesn't get confused
+    tokenized_datasets = dataset.map(
+        preprocess_function, 
+        batched=True, 
+        remove_columns=["text", "label", "subreddit"] if "subreddit" in dataset["train"].column_names else ["text", "label"]
+    )
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     print(f"--- Initializing Model ---")
