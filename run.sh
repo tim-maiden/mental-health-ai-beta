@@ -96,10 +96,21 @@ else
     MODEL_SIZE="small"
 fi
 
-MODEL_OUTPUT_DIR="models/risk_classifier_deberta_${MODEL_SIZE}_v1"
-QUANTIZED_MODEL_DIR="models/risk_classifier_quantized_${MODEL_SIZE}"
+# Dynamic path definitions (must match config.py)
+SOURCE_MODEL_DIR="models/risk_classifier_deberta_${MODEL_SIZE}_v1"
+TARGET_QUANTIZED_DIR="models/risk_classifier_quantized_${MODEL_SIZE}"
 
-mkdir -p "$QUANTIZED_MODEL_DIR"
+log "Source Model: $SOURCE_MODEL_DIR"
+log "Target Quantized Dir: $TARGET_QUANTIZED_DIR"
+
+# Verify source model exists
+if [ ! -d "$SOURCE_MODEL_DIR" ]; then
+    log "Error: Source model directory not found: $SOURCE_MODEL_DIR"
+    log "Please ensure training completed successfully in Step 3."
+    exit 1
+fi
+
+mkdir -p "$TARGET_QUANTIZED_DIR"
 
 # Verify optimum-cli exists
 if ! command -v optimum-cli &> /dev/null; then
@@ -107,21 +118,21 @@ if ! command -v optimum-cli &> /dev/null; then
     exit 1
 fi
 
-log "Exporting to ONNX (FP16) from $MODEL_OUTPUT_DIR..."
-optimum-cli export onnx --model "$MODEL_OUTPUT_DIR" --task text-classification --dtype fp16 --opset 17 "$QUANTIZED_MODEL_DIR/"
+log "Exporting to ONNX (FP16)..."
+optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 "$TARGET_QUANTIZED_DIR/"
 
 # Rename for Inference Compatibility
-if [ -f "$QUANTIZED_MODEL_DIR/model.onnx" ]; then
-    mv "$QUANTIZED_MODEL_DIR/model.onnx" "$QUANTIZED_MODEL_DIR/model_quantized.onnx"
+if [ -f "$TARGET_QUANTIZED_DIR/model.onnx" ]; then
+    mv "$TARGET_QUANTIZED_DIR/model.onnx" "$TARGET_QUANTIZED_DIR/model_quantized.onnx"
 fi
 
 # Copy config files
 log "Copying model artifacts..."
-cp "$MODEL_OUTPUT_DIR/config.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
-cp "$MODEL_OUTPUT_DIR/tokenizer_config.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
-cp "$MODEL_OUTPUT_DIR/vocab.txt" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
-cp "$MODEL_OUTPUT_DIR/tokenizer.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
-cp "$MODEL_OUTPUT_DIR/special_tokens_map.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
+cp "$SOURCE_MODEL_DIR/config.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
+cp "$SOURCE_MODEL_DIR/tokenizer_config.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
+cp "$SOURCE_MODEL_DIR/vocab.txt" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
+cp "$SOURCE_MODEL_DIR/tokenizer.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
+cp "$SOURCE_MODEL_DIR/special_tokens_map.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
 
 log "--- Step 5: Final Inference Test ---"
 python scripts/inference.py
