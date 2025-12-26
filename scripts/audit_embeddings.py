@@ -31,7 +31,13 @@ def main():
     reduced_data = reduce_dimensions(embeddings)
     
     # 3. Significance Filter (Risk Density)
-    risk_scores = calculate_risk_density(reduced_data, binary_labels, k=100)
+    # Self-querying: query=reduced_data, reference=reduced_data
+    risk_scores = calculate_risk_density(
+        query_embeddings=reduced_data,
+        reference_embeddings=reduced_data,
+        reference_labels=binary_labels,
+        k=100
+    )
     
     df_all['risk_density'] = risk_scores
     

@@ -5,7 +5,7 @@ import pandas as pd
 import kagglehub
 from datasets import load_dataset
 from src.core.clients import encoding
-from src.core.utils import chunk_text_by_sentence
+from src.core.utils import chunk_text_sliding_window
 
 def load_lmsys_chat_dataset():
     """Loads and processes the lmsys-chat-1m dataset."""
@@ -74,7 +74,7 @@ def load_wildchat_dataset(limit=5000):
                 user_content = current_turn.get('content')
                 
                 # CHUNK the user input into sentences
-                chunks = chunk_text_by_sentence(user_content)
+                chunks = chunk_text_sliding_window(user_content)
                 chunk_order_id = 1
                 
                 for chunk in chunks:
@@ -131,7 +131,7 @@ def load_reddit_mental_health_dataset():
     multiturn_rows = []
     for index, row in df.iterrows():
         selftext = str(row['selftext'])
-        chunks = chunk_text_by_sentence(selftext) # Use the sentence chunking function
+        chunks = chunk_text_sliding_window(selftext) # Use the sentence chunking function
         chunk_order_id = 1
         for chunk in chunks:
             multiturn_rows.append({
@@ -260,7 +260,7 @@ def load_reddit_control_dataset():
                 
             # Add to collection
             # Chunk the text to match mental health dataset processing
-            chunks = chunk_text_by_sentence(full_text)
+            chunks = chunk_text_sliding_window(full_text)
             
             # We need a unique ID for each post to track chunks
             # Since we don't have a post_id from this dataset, we'll generate one

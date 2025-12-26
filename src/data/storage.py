@@ -94,7 +94,8 @@ def fetch_data(table_name, fetch_size=1000):
     
     while True:
         offset = page * fetch_size
-        response = supabase.table(table_name).select("subreddit, embedding, input").limit(fetch_size).offset(offset).execute()
+        # Select more columns to allow for better filtering downstream
+        response = supabase.table(table_name).select("subreddit, embedding, input, post_id, chunk_id").limit(fetch_size).offset(offset).execute()
         data = response.data
         if not data:
             break
