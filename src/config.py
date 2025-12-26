@@ -70,8 +70,7 @@ RAW_DATA_FILE = os.path.join(DATA_DIR, "raw_latest.pkl")
 AUDIT_RESULTS_FILE = os.path.join(OUTPUT_DIR, "significance_audit_results.pkl")
 
 TRAIN_FILE = os.path.join(DATA_DIR, "final_train.jsonl")
-TEST_CLEAN_FILE = os.path.join(DATA_DIR, "test_clean.jsonl")
-TEST_AMBIGUOUS_FILE = os.path.join(DATA_DIR, "test_ambiguous.jsonl")
+TEST_FILE = os.path.join(DATA_DIR, "test.jsonl")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")

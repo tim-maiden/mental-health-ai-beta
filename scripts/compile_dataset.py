@@ -10,15 +10,15 @@ from src.analysis.metrics import reduce_dimensions, calculate_risk_density
 from src.config import (
     RAW_DATA_FILE,
     TRAIN_FILE,
-    TEST_CLEAN_FILE,
-    TEST_AMBIGUOUS_FILE
+    TEST_FILE
 )
 
 # --- DATA FILTERING THRESHOLDS ---
 # Safe Prototypes: Only include safe items with density below this threshold
 # Lower threshold = stricter filtering (removes borderline "sad but safe" posts)
 # This forces the model to rely more on text signal rather than subreddit context
-SAFE_DENSITY_THRESHOLD = 0.15  # Tightened from 0.25 to improve signal sensitivity
+SAFE_DENSITY_THRESHOLD = 0.25  # Relaxed from 0.15 to include hard negatives (sad but safe)
+RISK_DENSITY_THRESHOLD = 0.30  # Relaxed from 0.40 to include subtle risk
 
 def main():
     print("--- Starting Sequential Dataset Compilation (Decoupled Striding) ---")
@@ -117,7 +117,7 @@ def main():
     
     mask_risk = train_df['binary_label'] == 1
     # Increased threshold to 0.4 for "Prototype" definition
-    mask_clean_risk = mask_risk & (train_df['risk_density_p1'] > 0.4)
+    mask_clean_risk = mask_risk & (train_df['risk_density_p1'] > RISK_DENSITY_THRESHOLD)
     
     # Define "Cleaned Risk" subset (from full overlapping)
     train_risk_clean_full = train_df[mask_clean_risk].copy()
@@ -125,7 +125,7 @@ def main():
     # Define "All Safe" subset (from full overlapping) for further filtering
     train_safe_all_full = train_df[train_df['binary_label'] == 0].copy()
     
-    print(f"Risk Prototypes (Density > 0.4): {mask_risk.sum()} -> {len(train_risk_clean_full)}")
+    print(f"Risk Prototypes (Density > {RISK_DENSITY_THRESHOLD}): {mask_risk.sum()} -> {len(train_risk_clean_full)}")
     
     # D. Recalculate Density (Pass 2)
     # Reference: Non-Overlapping version of (Clean Risk + All Safe)
@@ -240,18 +240,7 @@ def main():
     )
     test_df['risk_density'] = test_density
     
-    mask_test_risk_clean = (test_df['binary_label'] == 1) & (test_df['risk_density'] > 0.5)
-    mask_test_safe_clean = (test_df['binary_label'] == 0) & (test_df['risk_density'] < 0.2)
-    
-    test_clean = pd.concat([
-        test_df[mask_test_risk_clean],
-        test_df[mask_test_safe_clean]
-    ]).sample(frac=1, random_state=42)
-    
-    test_ambiguous = test_df.drop(test_clean.index).sample(frac=1, random_state=42)
-    
-    print(f"Test Clean: {len(test_clean)}")
-    print(f"Test Ambiguous: {len(test_ambiguous)}")
+    print(f"Test Set Size: {len(test_df)}")
     
     # ==========================================================
     # PHASE 3: EXPORT
@@ -266,8 +255,7 @@ def main():
         print(f"Saved {len(out)} rows to {filename}")
 
     save_jsonl(final_train, TRAIN_FILE)
-    save_jsonl(test_clean, TEST_CLEAN_FILE)
-    save_jsonl(test_ambiguous, TEST_AMBIGUOUS_FILE)
+    save_jsonl(test_df, TEST_FILE)
     
     print("Done!")
 

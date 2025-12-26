@@ -14,16 +14,11 @@ from src.modeling.training import get_training_args, compute_metrics
 from src.config import (
     MODEL_ID, 
     TRAIN_FILE, 
-    TEST_CLEAN_FILE, 
-    TEST_AMBIGUOUS_FILE, 
+    TEST_FILE, 
     MODEL_OUTPUT_DIR, 
     WANDB_PROJECT
 )
 
-EVAL_FILES = {
-    "clean": TEST_CLEAN_FILE,
-    "ambiguous": TEST_AMBIGUOUS_FILE
-}     
 OUTPUT_DIR = MODEL_OUTPUT_DIR
 NUM_EPOCHS = 5
 
@@ -55,8 +50,7 @@ def main():
 
     dataset = load_dataset("json", data_files={
         "train": TRAIN_FILE,
-        "test_clean": EVAL_FILES["clean"],
-        "test_ambiguous": EVAL_FILES["ambiguous"]
+        "test": TEST_FILE
     })
     
     print(f"--- Loading Tokenizer ({MODEL_ID}) ---")
@@ -98,10 +92,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
-        eval_dataset={
-            "clean": tokenized_datasets["test_clean"],
-            "ambiguous": tokenized_datasets["test_ambiguous"]
-        },
+        eval_dataset=tokenized_datasets["test"],
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
@@ -116,11 +107,8 @@ def main():
     tokenizer.save_pretrained(OUTPUT_DIR)
     
     print("\n--- Final Evaluation ---")
-    print("Evaluating on Clean Test Set...")
-    print(trainer.evaluate(eval_dataset=tokenized_datasets["test_clean"], metric_key_prefix="eval_clean"))
-
-    print("Evaluating on Ambiguous Test Set...")
-    print(trainer.evaluate(eval_dataset=tokenized_datasets["test_ambiguous"], metric_key_prefix="eval_ambiguous"))
+    print("Evaluating on Test Set...")
+    print(trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval"))
     
     wandb.finish()
 
