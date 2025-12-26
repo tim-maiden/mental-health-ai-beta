@@ -21,9 +21,11 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     
     if is_cloud:
         print("--- CONFIGURING FOR CLOUD GPU (H100/A100) ---")
-        per_device_train_batch_size = 32
-        per_device_eval_batch_size = 32
-        grad_accum_steps = 1
+        # DeBERTa Large requires smaller batch sizes due to memory constraints
+        # Reduced from 32 to 16 to accommodate larger model
+        per_device_train_batch_size = 16
+        per_device_eval_batch_size = 16
+        grad_accum_steps = 2  # Increased to maintain effective batch size
         bf16_mode = True
         fp16_mode = False
         dataloader_workers = 8
@@ -41,7 +43,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     return TrainingArguments(
         output_dir=output_dir,
         overwrite_output_dir=True,
-        eval_strategy="epoch",  # Updated from evaluation_strategy for transformers >= 4.41
+        evaluation_strategy="epoch",  # Compatible with transformers 4.40.2 (required by optimum 1.19.2)
         save_strategy="epoch",
         learning_rate=1e-5,
         warmup_ratio=0.1,

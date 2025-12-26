@@ -38,7 +38,17 @@ TPM_LIMIT = 5_000_000
 RPM_LIMIT = 5_000
 
 # --- MODEL & TRAINING CONFIGURATION ---
-MODEL_ID = "microsoft/deberta-v3-base"
+# Environment-aware model selection:
+# - Local: DeBERTa Small (faster, lower memory)
+# - Cloud/RunPod: DeBERTa Large (better accuracy, more GPU resources)
+DEPLOY_ENV = os.getenv("DEPLOY_ENV", "local")
+if DEPLOY_ENV in ["runpod", "cloud"]:
+    MODEL_ID = "microsoft/deberta-v3-large"
+    MODEL_SIZE = "large"
+else:
+    MODEL_ID = "microsoft/deberta-v3-small"
+    MODEL_SIZE = "small"
+
 WANDB_PROJECT = "mental-health-classifier"
 
 # --- INFERENCE CONFIGURATION ---
@@ -63,6 +73,6 @@ TRAIN_FILE = os.path.join(DATA_DIR, "final_train.jsonl")
 TEST_CLEAN_FILE = os.path.join(DATA_DIR, "test_clean.jsonl")
 TEST_AMBIGUOUS_FILE = os.path.join(DATA_DIR, "test_ambiguous.jsonl")
 
-# Model Paths
-MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, "risk_classifier_deberta_v1")
-QUANTIZED_MODEL_DIR = os.path.join(MODELS_DIR, "risk_classifier_quantized")
+# Model Paths (include model size to avoid conflicts between local/cloud models)
+MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
+QUANTIZED_MODEL_DIR = os.path.join(MODELS_DIR, f"risk_classifier_quantized_{MODEL_SIZE}")

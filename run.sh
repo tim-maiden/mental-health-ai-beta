@@ -88,7 +88,18 @@ log "--- Step 3: Train Classifier (ModernBERT/DeBERTa) ---"
 python scripts/train_classifier.py
 
 log "--- Step 4: Quantize Model (ONNX FP16) ---"
-mkdir -p models/risk_classifier_quantized
+
+# Determine model paths based on environment (matching config.py logic)
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    MODEL_SIZE="large"
+else
+    MODEL_SIZE="small"
+fi
+
+MODEL_OUTPUT_DIR="models/risk_classifier_deberta_${MODEL_SIZE}_v1"
+QUANTIZED_MODEL_DIR="models/risk_classifier_quantized_${MODEL_SIZE}"
+
+mkdir -p "$QUANTIZED_MODEL_DIR"
 
 # Verify optimum-cli exists
 if ! command -v optimum-cli &> /dev/null; then
@@ -96,21 +107,21 @@ if ! command -v optimum-cli &> /dev/null; then
     exit 1
 fi
 
-log "Exporting to ONNX (FP16)..."
-optimum-cli export onnx --model models/risk_classifier_deberta_v1 --task text-classification --dtype fp16 --opset 17 models/risk_classifier_quantized/
+log "Exporting to ONNX (FP16) from $MODEL_OUTPUT_DIR..."
+optimum-cli export onnx --model "$MODEL_OUTPUT_DIR" --task text-classification --dtype fp16 --opset 17 "$QUANTIZED_MODEL_DIR/"
 
 # Rename for Inference Compatibility
-if [ -f "models/risk_classifier_quantized/model.onnx" ]; then
-    mv models/risk_classifier_quantized/model.onnx models/risk_classifier_quantized/model_quantized.onnx
+if [ -f "$QUANTIZED_MODEL_DIR/model.onnx" ]; then
+    mv "$QUANTIZED_MODEL_DIR/model.onnx" "$QUANTIZED_MODEL_DIR/model_quantized.onnx"
 fi
 
 # Copy config files
 log "Copying model artifacts..."
-cp models/risk_classifier_deberta_v1/config.json models/risk_classifier_quantized/
-cp models/risk_classifier_deberta_v1/tokenizer_config.json models/risk_classifier_quantized/
-cp models/risk_classifier_deberta_v1/vocab.txt models/risk_classifier_quantized/ 2>/dev/null || true
-cp models/risk_classifier_deberta_v1/tokenizer.json models/risk_classifier_quantized/ 2>/dev/null || true
-cp models/risk_classifier_deberta_v1/special_tokens_map.json models/risk_classifier_quantized/ 2>/dev/null || true
+cp "$MODEL_OUTPUT_DIR/config.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
+cp "$MODEL_OUTPUT_DIR/tokenizer_config.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
+cp "$MODEL_OUTPUT_DIR/vocab.txt" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
+cp "$MODEL_OUTPUT_DIR/tokenizer.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
+cp "$MODEL_OUTPUT_DIR/special_tokens_map.json" "$QUANTIZED_MODEL_DIR/" 2>/dev/null || true
 
 log "--- Step 5: Final Inference Test ---"
 python scripts/inference.py

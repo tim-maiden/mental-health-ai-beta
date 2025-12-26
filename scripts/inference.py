@@ -8,9 +8,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.modeling.inference import load_model, predict_batch, is_clean_english, get_device
 from datasets import load_dataset
 
-# Configuration
-QUANTIZED_PATH = "models/risk_classifier_quantized"
-STANDARD_PATH = "models/risk_classifier_v1"
+# Configuration - Use environment-aware paths from config
+from src.config import MODEL_OUTPUT_DIR, QUANTIZED_MODEL_DIR
+
+QUANTIZED_PATH = QUANTIZED_MODEL_DIR
+STANDARD_PATH = MODEL_OUTPUT_DIR
 
 # Test Examples
 INPUT_TEXTS = [
@@ -103,8 +105,13 @@ def run_inference(args):
     if os.path.exists(os.path.join(QUANTIZED_PATH, "model_quantized.onnx")):
         model_path = QUANTIZED_PATH
         is_quantized = True
-    elif not os.path.exists(STANDARD_PATH) and os.path.exists("models/risk_classifier_deberta_v1"):
-         model_path = "models/risk_classifier_deberta_v1"
+    elif not os.path.exists(STANDARD_PATH):
+        # Fallback: try legacy path (for backward compatibility)
+        legacy_path = "models/risk_classifier_deberta_v1"
+        if os.path.exists(legacy_path):
+            model_path = legacy_path
+        else:
+            raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
 
     print(f"Loading Model from: {model_path} (Quantized: {is_quantized})")
     
@@ -195,8 +202,13 @@ if __name__ == "__main__":
         if os.path.exists(os.path.join(QUANTIZED_PATH, "model_quantized.onnx")):
             model_path = QUANTIZED_PATH
             is_quantized = True
-        elif not os.path.exists(STANDARD_PATH) and os.path.exists("models/risk_classifier_deberta_v1"):
-            model_path = "models/risk_classifier_deberta_v1"
+        elif not os.path.exists(STANDARD_PATH):
+            # Fallback: try legacy path (for backward compatibility)
+            legacy_path = "models/risk_classifier_deberta_v1"
+            if os.path.exists(legacy_path):
+                model_path = legacy_path
+            else:
+                raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
 
         model, tokenizer, device = load_model(model_path, is_quantized=is_quantized)
         probs = predict_batch(model, tokenizer, INPUT_TEXTS, device, is_quantized=is_quantized)

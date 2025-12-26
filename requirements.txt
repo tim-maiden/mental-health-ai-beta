@@ -11,10 +11,11 @@ seaborn
 sentencepiece
 supabase
 tiktoken
-transformers==4.41.2
+transformers==4.40.2
 # Note: optimum and onnxruntime are installed per-environment in run.sh
-# Local: optimum[onnxruntime]==1.20.0
-# Cloud: optimum[onnxruntime-gpu]==1.20.0 (includes onnxruntime-gpu==1.18.0)
+# Local: optimum[onnxruntime]==1.19.2
+# Cloud: optimum[onnxruntime-gpu]==1.19.2 (includes onnxruntime-gpu==1.18.0)
+# transformers==4.40.2 is required by optimum==1.19.2 (which fixes ONNX export crash)
 torch>=2.6.0
 wandb
 boto3
