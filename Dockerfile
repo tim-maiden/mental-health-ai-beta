@@ -16,7 +16,7 @@ COPY requirements.txt .
 # Install dependencies
 # 1. Standard requirements
 # 2. GPU-specific ONNX Runtime (critical for the H100)
-RUN pip uninstall -y optimum optimum-onnx optimum-quantization && \
+RUN pip uninstall -y optimum optimum-onnx optimum-quantization onnxruntime && \
     pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir "optimum[onnxruntime-gpu]==1.19.2"

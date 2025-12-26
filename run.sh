@@ -64,7 +64,7 @@ elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     log "Configuring Cloud Environment..."
     
     # [FIX] Clean pre-installed conflicting packages from the base image
-    pip uninstall -y optimum optimum-onnx optimum-quantization
+    pip uninstall -y optimum optimum-onnx optimum-quantization onnxruntime
     
     pip install --upgrade pip --break-system-packages
     pip install -r requirements.txt --break-system-packages
@@ -124,7 +124,19 @@ if ! command -v optimum-cli &> /dev/null; then
 fi
 
 log "Exporting to ONNX (FP16)..."
-if ! optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 "$TARGET_QUANTIZED_DIR/"; then
+
+# [FIX] Added --device cuda to support FP16 export (required on GPU)
+DEVICE_OPTS=""
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    DEVICE_OPTS="--device cuda"
+fi
+
+log "ONNX Export Config:"
+log "  - Model: $SOURCE_MODEL_DIR"
+log "  - Device Opts: '$DEVICE_OPTS'"
+log "  - Output: $TARGET_QUANTIZED_DIR/"
+
+if ! optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 $DEVICE_OPTS "$TARGET_QUANTIZED_DIR/"; then
     log "Error: ONNX export failed. Check the model directory and optimum-cli installation."
     exit 1
 fi
