@@ -52,7 +52,7 @@ if [ "$DEPLOY_ENV" == "local" ]; then
         
         log "Installing dependencies..."
         pip install -r requirements.txt
-        pip install "optimum[onnxruntime]==1.20.0"
+        pip install "optimum[onnxruntime]==1.19.2"
     else
         source venv/bin/activate
     fi
@@ -64,7 +64,7 @@ elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     pip install --upgrade pip --break-system-packages
     pip install -r requirements.txt --break-system-packages
     log "Installing ONNX Runtime GPU..."
-    pip install "optimum[onnxruntime-gpu]==1.20.0" --break-system-packages
+    pip install "optimum[onnxruntime-gpu]==1.19.2" --break-system-packages
     unset PYTORCH_MPS_HIGH_WATERMARK_RATIO
 else
     log "Error: Invalid deploy mode. Use 'local' or 'runpod'."

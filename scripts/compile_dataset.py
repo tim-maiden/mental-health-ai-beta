@@ -14,6 +14,12 @@ from src.config import (
     TEST_AMBIGUOUS_FILE
 )
 
+# --- DATA FILTERING THRESHOLDS ---
+# Safe Prototypes: Only include safe items with density below this threshold
+# Lower threshold = stricter filtering (removes borderline "sad but safe" posts)
+# This forces the model to rely more on text signal rather than subreddit context
+SAFE_DENSITY_THRESHOLD = 0.15  # Tightened from 0.25 to improve signal sensitivity
+
 def main():
     print("--- Starting Sequential Dataset Compilation (Decoupled Striding) ---")
     
@@ -156,15 +162,16 @@ def main():
     # Instead, we select ONLY "Clean Safe" (Low Density).
     # We DROP the "Ambiguous" / "Hard Negative" region entirely from training.
     
-    # Safe Prototypes: Density < 0.25
-    safe_prototypes = train_safe_all_full[train_safe_all_full['risk_density_p2'] < 0.25]
+    # Safe Prototypes: Density < SAFE_DENSITY_THRESHOLD (0.15)
+    # Tightened threshold removes "borderline" safe posts, forcing model to rely on text signal
+    safe_prototypes = train_safe_all_full[train_safe_all_full['risk_density_p2'] < SAFE_DENSITY_THRESHOLD]
     
-    # Ambiguous / Hard Negatives: Density >= 0.25 (DROPPED)
+    # Ambiguous / Hard Negatives: Density >= SAFE_DENSITY_THRESHOLD (DROPPED)
     # We log count for info, but do not use them.
     n_dropped_safe = len(train_safe_all_full) - len(safe_prototypes)
     
-    print(f"Safe Prototypes (Density < 0.25): {len(safe_prototypes)}")
-    print(f"Ambiguous Safe Dropped (Density >= 0.25): {n_dropped_safe} (Radioactive Zone)")
+    print(f"Safe Prototypes (Density < {SAFE_DENSITY_THRESHOLD}): {len(safe_prototypes)}")
+    print(f"Ambiguous Safe Dropped (Density >= {SAFE_DENSITY_THRESHOLD}): {n_dropped_safe} (Radioactive Zone)")
     
     # F. Balance & Merge (Margin-Based / No-Fly Zone)
     # ---------------------------------------------------------
