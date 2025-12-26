@@ -8,6 +8,7 @@ log() {
 
 error_handler() {
     log "Error occurred in script at line: $1"
+    log "Last command exit code: $?"
     log "Pipeline failed."
     exit 1
 }
@@ -123,7 +124,10 @@ if ! command -v optimum-cli &> /dev/null; then
 fi
 
 log "Exporting to ONNX (FP16)..."
-optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 "$TARGET_QUANTIZED_DIR/"
+if ! optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 "$TARGET_QUANTIZED_DIR/"; then
+    log "Error: ONNX export failed. Check the model directory and optimum-cli installation."
+    exit 1
+fi
 
 # Rename for Inference Compatibility
 if [ -f "$TARGET_QUANTIZED_DIR/model.onnx" ]; then
