@@ -85,9 +85,8 @@ def main():
         id2label={0: "Safe", 1: "Risk"}
     )
 
-    if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
-        print("--- Compiling Model (H100 Optimization) ---")
-        model = torch.compile(model)
+    # Note: Model compilation is now handled by Trainer via torch_compile parameter
+    # This avoids signature inspection issues with torch.compile()
 
     training_args = get_training_args(
         output_dir=OUTPUT_DIR,

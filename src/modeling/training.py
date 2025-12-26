@@ -59,7 +59,8 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         dataloader_num_workers=dataloader_workers,
         logging_steps=50,
         report_to="wandb",
-        run_name=f"{model_id.split('/')[-1]}-{train_size}samples"
+        run_name=f"{model_id.split('/')[-1]}-{train_size}samples",
+        torch_compile=is_cloud,  # Enable native torch.compile via Trainer (H100 optimization)
     )
 
 def compute_metrics(eval_pred):
