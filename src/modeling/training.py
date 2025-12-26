@@ -21,11 +21,10 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     
     if is_cloud:
         print("--- CONFIGURING FOR CLOUD GPU (H100/A100) ---")
-        # DeBERTa Large requires smaller batch sizes due to memory constraints
-        # Reduced from 32 to 16 to accommodate larger model
-        per_device_train_batch_size = 16
-        per_device_eval_batch_size = 16
-        grad_accum_steps = 2  # Increased to maintain effective batch size
+        # [FIX] Increased batch size to saturate H100 memory
+        per_device_train_batch_size = 32
+        per_device_eval_batch_size = 32
+        grad_accum_steps = 2  
         bf16_mode = True
         fp16_mode = False
         dataloader_workers = 8
@@ -62,7 +61,11 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         logging_steps=50,
         report_to="wandb",
         run_name=f"{model_id.split('/')[-1] if model_id else 'model'}-{train_size}samples",
-        torch_compile=is_cloud,  # Enable native torch.compile via Trainer (H100 optimization)
+        
+        # [FIX] H100 Optimizations
+        torch_compile=is_cloud,
+        torch_compile_mode="reduce-overhead" if is_cloud else None,
+        tf32=is_cloud,  # Enable TensorFloat-32 for significant speedup
     )
 
 def compute_metrics(eval_pred):

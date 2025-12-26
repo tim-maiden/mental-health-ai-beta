@@ -61,6 +61,10 @@ if [ "$DEPLOY_ENV" == "local" ]; then
 elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     # --- CLOUD (CUDA) ---
     log "Configuring Cloud Environment..."
+    
+    # [FIX] Clean pre-installed conflicting packages from the base image
+    pip uninstall -y optimum optimum-onnx optimum-quantization
+    
     pip install --upgrade pip --break-system-packages
     pip install -r requirements.txt --break-system-packages
     log "Installing ONNX Runtime GPU..."
