@@ -65,9 +65,9 @@ def main():
     print(f"Test Size:  {len(test_df)} rows")
 
     # ==========================================================
-    # PHASE 1: PROCESS TRAINING DATA (Decoupled Striding)
+    # PHASE 1: PROCESS TRAINING DATA (Margin-Based / Ambiguity Filtering)
     # ==========================================================
-    print("\n--- Phase 1: Processing Training Data ---")
+    print("\n--- Phase 1: Processing Training Data (Margin-Based Learning) ---")
     
     # A. Build Decoupled Teacher Index (Stride = Window Size)
     # Strategy: Select every 3rd chunk per post (assuming window=3, stride=1 originally)
@@ -106,42 +106,28 @@ def main():
     )
     train_df['risk_density_p1'] = density_scores_pass1
     
-    # C. Filter Risk (Cleaning the Teacher)
-    # Keep Risk items only if risk_density > 0.25 (Must look somewhat risky)
-    # Filter the TEACHER set first? Or the Full set?
-    # Guidance: "Filter Risk (Clean the Teacher)"
-    # We want to identify valid risk items to use as the reference for the NEXT pass.
-    # So we filter the *entire* train set to find valid risk, but when building the index for Pass 2,
-    # we should arguably still maintain non-overlapping property if possible, OR just use the cleaned set
-    # as the ground truth.
-    # Guidance says: "Build a new Non-Overlapping Index using only the risk_cleaned set + all_safe set."
+    # C. Filter Risk Prototypes (High Density Risk)
+    # Keep Risk items only if risk_density > 0.4 (The Clear Signal)
     
-    # Let's identify "Clean Risk" from the full set
     mask_risk = train_df['binary_label'] == 1
-    mask_clean_risk = mask_risk & (train_df['risk_density_p1'] > 0.25)
+    # Increased threshold to 0.4 for "Prototype" definition
+    mask_clean_risk = mask_risk & (train_df['risk_density_p1'] > 0.4)
     
     # Define "Cleaned Risk" subset (from full overlapping)
     train_risk_clean_full = train_df[mask_clean_risk].copy()
     
-    # Define "All Safe" subset (from full overlapping)
+    # Define "All Safe" subset (from full overlapping) for further filtering
     train_safe_all_full = train_df[train_df['binary_label'] == 0].copy()
     
-    print(f"Filtered Risk Set: {mask_risk.sum()} -> {len(train_risk_clean_full)} (Removed noisy samples)")
+    print(f"Risk Prototypes (Density > 0.4): {mask_risk.sum()} -> {len(train_risk_clean_full)}")
     
     # D. Recalculate Density (Pass 2)
     # Reference: Non-Overlapping version of (Clean Risk + All Safe)
-    # Query: All Safe (to find hard negatives)
+    # Query: All Safe (to find safe prototypes)
     
-    print("\n--- Pass 2: Hard Negative Mining ---")
+    print("\n--- Pass 2: Identifying Safe Prototypes ---")
     
     # Build Pass 2 Teacher (Non-Overlapping)
-    # We need to subsample the Cleaned Risk and All Safe again to ensure non-overlap
-    # We can reuse the 'teacher_mask' logic
-    
-    # Get the subsets of the ORIGINAL teacher_df that survived the filter (for Risk) 
-    # and all Safe teacher items.
-    # This ensures the reference index is still non-overlapping.
-    
     # Risk Teacher (Cleaned): Intersection of Teacher Mask AND Clean Risk Mask
     teacher_risk_clean = train_df[teacher_mask & mask_clean_risk]
     
@@ -165,52 +151,52 @@ def main():
     )
     train_safe_all_full['risk_density_p2'] = density_scores_pass2
     
-    # E. Mining
-    safe_hard = train_safe_all_full[train_safe_all_full['risk_density_p2'] > 0.5]
-    safe_easy = train_safe_all_full[train_safe_all_full['risk_density_p2'] < 0.2]
-    safe_mid  = train_safe_all_full[(train_safe_all_full['risk_density_p2'] >= 0.2) & (train_safe_all_full['risk_density_p2'] <= 0.5)]
+    # E. Margin-Based Filtering (The Pivot)
+    # Dropping the "Hard Negative Mining" approach.
+    # Instead, we select ONLY "Clean Safe" (Low Density).
+    # We DROP the "Ambiguous" / "Hard Negative" region entirely from training.
     
-    print(f"Safe Hard Negatives (>0.5): {len(safe_hard)}")
-    print(f"Safe Easy Negatives (<0.2): {len(safe_easy)}")
+    # Safe Prototypes: Density < 0.2
+    safe_clean = train_safe_all_full[train_safe_all_full['risk_density_p2'] < 0.2]
     
-    # F. Balance & Merge (Aggressive Hard Negative Oversampling)
-    # Target: 33% Risk, 33% Safe Hard, 33% Safe Easy
+    # Ambiguous / Hard Negatives: Density >= 0.2 (DROPPED)
+    # We log count for info, but do not use them.
+    n_dropped_safe = len(train_safe_all_full) - len(safe_clean)
+    
+    print(f"Safe Prototypes (Density < 0.2): {len(safe_clean)}")
+    print(f"Ambiguous Safe Dropped (Density >= 0.2): {n_dropped_safe} (Radioactive Zone)")
+    
+    # F. Balance & Merge
+    # Target: 50% Risk Prototypes, 50% Safe Prototypes
     
     target_size = len(train_risk_clean_full)
     print(f"\n--- Balancing Dataset (Target Class Size: {target_size}) ---")
     
-    # 1. Oversample Hard Negatives (The Critical Fix)
-    n_hard = len(safe_hard)
-    if n_hard > 0:
-        print(f"Oversampling Hard Negatives ({n_hard} -> {target_size})...")
-        # Use replace=True to duplicate samples until we reach target size
-        safe_hard_upsampled = safe_hard.sample(n=target_size, replace=True, random_state=42)
+    if len(safe_clean) > target_size:
+        print(f"Downsampling Safe Prototypes ({len(safe_clean)} -> {target_size})...")
+        safe_clean_balanced = safe_clean.sample(n=target_size, random_state=42)
     else:
-        print("Warning: No Hard Negatives found! Using Empty DataFrame.")
-        safe_hard_upsampled = safe_hard
-        
-    # 2. Downsample Easy Negatives (Maintenance)
-    pool_easy_mid = pd.concat([safe_easy, safe_mid])
-    if len(pool_easy_mid) > target_size:
-        print(f"Downsampling Safe Easy/Mid ({len(pool_easy_mid)} -> {target_size})...")
-        safe_easy_balanced = pool_easy_mid.sample(n=target_size, random_state=42)
-    else:
-        safe_easy_balanced = pool_easy_mid
+        print(f"Warning: Not enough Safe Prototypes ({len(safe_clean)}) to match Risk ({target_size}). Using all.")
+        safe_clean_balanced = safe_clean
+        # Upsample if needed? For now, let's keep it clean. 
+        # Actually, imbalance might be okay if not severe, but let's upsample if significantly smaller
+        if len(safe_clean) < target_size * 0.5:
+             print("Severe imbalance detected. Upsampling Safe Prototypes...")
+             safe_clean_balanced = safe_clean.sample(n=target_size, replace=True, random_state=42)
+
 
     # 3. Combine
     final_train = pd.concat([
         train_risk_clean_full,
-        safe_hard_upsampled, 
-        safe_easy_balanced
+        safe_clean_balanced
     ])
     
     # Shuffle
     final_train = final_train.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    print(f"Final Training Distribution:")
-    print(f" - Risk: {len(train_risk_clean_full)}")
-    print(f" - Safe (Hard): {len(safe_hard_upsampled)}")
-    print(f" - Safe (Easy/Mid): {len(safe_easy_balanced)}")
+    print(f"Final Training Distribution (Margin-Based):")
+    print(f" - Risk Prototypes: {len(train_risk_clean_full)}")
+    print(f" - Safe Prototypes: {len(safe_clean_balanced)}")
     print(f" - Total: {len(final_train)}")
     
     # ==========================================================

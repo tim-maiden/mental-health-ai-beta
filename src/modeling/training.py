@@ -24,7 +24,8 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         per_device_train_batch_size = 32
         per_device_eval_batch_size = 32
         grad_accum_steps = 1
-        fp16_mode = True
+        bf16_mode = True
+        fp16_mode = False
         dataloader_workers = 8
         pin_memory = True
     else:
@@ -32,6 +33,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         per_device_train_batch_size = 4
         per_device_eval_batch_size = 4
         grad_accum_steps = 4
+        bf16_mode = False
         fp16_mode = False # MPS crash workaround
         dataloader_workers = 0
         pin_memory = False
@@ -52,6 +54,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         load_best_model_at_end=True,
         metric_for_best_model="eval_ambiguous_loss",
         fp16=fp16_mode,
+        bf16=bf16_mode,
         dataloader_pin_memory=pin_memory,
         dataloader_num_workers=dataloader_workers,
         logging_steps=50,
@@ -74,10 +77,24 @@ def compute_metrics(eval_pred):
     rec = recall_metric.compute(predictions=predictions, references=labels)
     f1 = f1_metric.compute(predictions=predictions, references=labels)
     
-    return {
+    # Add mean probability if available (for calibration monitoring)
+    metrics = {
         "accuracy": acc["accuracy"],
         "precision": prec["precision"],
         "recall": rec["recall"],
         "f1": f1["f1"]
     }
+    
+    if hasattr(eval_pred, "predictions") and isinstance(eval_pred.predictions, np.ndarray):
+        # eval_pred.predictions is logits. Apply softmax to get probabilities.
+        # Check dimensions. If (n_samples, n_classes), we want prob of class 1.
+        
+        logits = eval_pred.predictions
+        # Simple softmax
+        probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
+        # Avg prob of Risk (class 1)
+        avg_risk_prob = np.mean(probs[:, 1])
+        metrics["avg_risk_prob"] = avg_risk_prob
+        
+    return metrics
 

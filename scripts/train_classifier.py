@@ -1,8 +1,13 @@
 import os
 import sys
+import torch
 import wandb
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding, Trainer
+
+# Disable tokenizer parallelism to prevent deadlocks with DataLoaders
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.modeling.training import get_training_args, compute_metrics
@@ -55,7 +60,7 @@ def main():
     })
     
     print(f"--- Loading Tokenizer ({MODEL_ID}) ---")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 
     def preprocess_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=512)
@@ -70,6 +75,10 @@ def main():
         label2id={"Safe": 0, "Risk": 1},
         id2label={0: "Safe", 1: "Risk"}
     )
+
+    if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
+        print("--- Compiling Model (H100 Optimization) ---")
+        model = torch.compile(model)
 
     training_args = get_training_args(
         output_dir=OUTPUT_DIR,
