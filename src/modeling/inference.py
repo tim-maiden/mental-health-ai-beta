@@ -2,6 +2,7 @@ import os
 import torch
 import re
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from src.config import TEMPERATURE
 
 try:
     from optimum.onnxruntime import ORTModelForSequenceClassification
@@ -38,20 +39,45 @@ def load_model(model_path, is_quantized=False):
     model.to(device)
     return model, tokenizer, device
 
-def predict_batch(model, tokenizer, texts, device, is_quantized=False):
+def predict_batch(model, tokenizer, texts, device, is_quantized=False, temperature=None):
+    """
+    Runs batch inference with optional temperature scaling to sharpen confidence.
+    
+    Args:
+        model: The trained Transformer model (PyTorch or ONNX)
+        tokenizer: Tokenizer for the model
+        texts: List of input texts
+        device: Torch device
+        is_quantized: Whether using ONNX quantized model
+        temperature (float): Temperature scaling factor. 
+                             T < 1.0 sharpens predictions (makes them more confident).
+                             T = 0.3 is optimized for margin-based classifiers.
+                             If None, uses TEMPERATURE from config (default 0.3).
+    
+    Returns:
+        Tensor of shape [batch_size, num_classes] with probabilities
+    """
+    if temperature is None:
+        temperature = TEMPERATURE
+    
     # 1. Tokenize
     inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=512)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     
-    # 2. Predict
+    # 2. Predict (get raw logits)
     with torch.no_grad():
         if is_quantized:
             logits = model(**inputs).logits
         else:
             logits = model(**inputs).logits
     
-    # 3. Convert to Probabilities
-    probs = torch.nn.functional.softmax(logits, dim=-1)
+    # 3. Apply Temperature Scaling
+    # Dividing by T < 1.0 increases the magnitude of logits,
+    # pushing probabilities closer to 0 or 1 (sharper predictions)
+    scaled_logits = logits / temperature
+    
+    # 4. Convert to Probabilities
+    probs = torch.nn.functional.softmax(scaled_logits, dim=-1)
     return probs
 
 def is_clean_english(text):

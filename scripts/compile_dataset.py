@@ -182,6 +182,8 @@ def main():
     
     if len(safe_prototypes) > target_size:
         print(f"Downsampling Safe Prototypes ({len(safe_prototypes)} -> {target_size})...")
+        # NOTE: Using random sampling to ensure diversity. If you see "jitter" on safe items,
+        # check that safe_balanced includes diverse topics (not just technical/bot content).
         safe_balanced = safe_prototypes.sample(n=target_size, random_state=42)
     else:
         # If we don't have enough pure safe posts, we take what we have

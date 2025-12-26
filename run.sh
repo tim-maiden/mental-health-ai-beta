@@ -52,7 +52,7 @@ if [ "$DEPLOY_ENV" == "local" ]; then
         
         log "Installing dependencies..."
         pip install -r requirements.txt
-        pip install "optimum[onnxruntime]==1.18.0"
+        pip install "optimum[onnxruntime]==1.20.0"
     else
         source venv/bin/activate
     fi
@@ -64,7 +64,7 @@ elif [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     pip install --upgrade pip --break-system-packages
     pip install -r requirements.txt --break-system-packages
     log "Installing ONNX Runtime GPU..."
-    pip install "optimum[onnxruntime-gpu]" --break-system-packages
+    pip install "optimum[onnxruntime-gpu]==1.20.0" --break-system-packages
     unset PYTORCH_MPS_HIGH_WATERMARK_RATIO
 else
     log "Error: Invalid deploy mode. Use 'local' or 'runpod'."
@@ -97,7 +97,7 @@ if ! command -v optimum-cli &> /dev/null; then
 fi
 
 log "Exporting to ONNX (FP16)..."
-optimum-cli export onnx --model models/risk_classifier_deberta_v1 --task text-classification --dtype fp16 models/risk_classifier_quantized/
+optimum-cli export onnx --model models/risk_classifier_deberta_v1 --task text-classification --dtype fp16 --opset 17 models/risk_classifier_quantized/
 
 # Rename for Inference Compatibility
 if [ -f "models/risk_classifier_quantized/model.onnx" ]; then
@@ -124,7 +124,7 @@ log "--- Pipeline Complete! ---"
 if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     log "--- Step 7: Terminating Pod ---"
     if [ -f "./scripts/terminate_pod_remote.sh" ]; then
-        ./scripts/terminate_pod_remote.sh
+        bash ./scripts/terminate_pod_remote.sh || log "Warning: Pod termination script failed, but pipeline completed successfully."
     else
         log "Warning: terminate_pod.sh not found. Pod will continue running."
         log "You may need to terminate it manually via the RunPod console or CLI."

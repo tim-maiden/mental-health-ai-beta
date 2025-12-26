@@ -13,7 +13,7 @@ from transformers import (
 warnings.filterwarnings("ignore", category=UserWarning) 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_size=16, model_id="microsoft/deberta-v3-base", train_size=0):
+def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_size=16, model_id=None, train_size=0):
     """
     Returns TrainingArguments based on hardware availability.
     """
@@ -59,7 +59,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         dataloader_num_workers=dataloader_workers,
         logging_steps=50,
         report_to="wandb",
-        run_name=f"{model_id.split('/')[-1]}-{train_size}samples",
+        run_name=f"{model_id.split('/')[-1] if model_id else 'model'}-{train_size}samples",
         torch_compile=is_cloud,  # Enable native torch.compile via Trainer (H100 optimization)
     )
 
