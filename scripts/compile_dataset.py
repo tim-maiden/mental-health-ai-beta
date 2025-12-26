@@ -48,17 +48,30 @@ def main():
     print(f"Safe Train: {len(train_safe)}")
 
     # 1. Compile Risk
-    print("\n--- Compiling Risk Set (Importance Oversampling) ---")
-    train_risk_oversampled = compile_risk_set(train_risk)
-    print(f"Original Risk: {len(train_risk)} -> Oversampled Risk: {len(train_risk_oversampled)}")
+    print("\n--- Compiling Risk Set (Filtering Noisy Labels) ---")
+    # Drop Risk items that look completely Safe (purity < 0.1)
+    train_risk_final = compile_risk_set(train_risk, min_purity=0.1)
+    print(f"Original Risk: {len(train_risk)} -> Filtered Risk: {len(train_risk_final)}")
 
     # 2. Compile Safe
-    target_safe_count = len(train_risk_oversampled) * 2
-    print(f"\n--- Compiling Safe Set (Importance Sampling) ---")
-    train_safe_sampled = compile_safe_set(train_safe, target_safe_count)
-    print(f"Target Safe: {target_safe_count}")
+    print(f"\n--- Compiling Safe Set (Filtering Noisy Labels) ---")
+    # Drop Safe items that look completely Risk (purity > 0.9)
+    train_safe_filtered = compile_safe_set(train_safe, max_risk_density=0.9)
+    
+    # 3. Balance Datasets (Optional: Undersample Safe to match Risk ratio? Or just keep all cleaned data?)
+    # Usually we want a balanced dataset or slight negative dominance. 
+    # Let's keep a 2:1 ratio max, otherwise use all available safe data.
+    target_safe_count = len(train_risk_final) * 2
+    
+    if len(train_safe_filtered) > target_safe_count:
+        print(f"Downsampling Safe set from {len(train_safe_filtered)} to {target_safe_count} to maintain 1:2 ratio")
+        train_safe_final = train_safe_filtered.sample(n=target_safe_count, random_state=42)
+    else:
+        train_safe_final = train_safe_filtered
 
-    final_train = pd.concat([train_risk_oversampled, train_safe_sampled]).sample(frac=1, random_state=42)
+    print(f"Final Safe: {len(train_safe_final)}")
+
+    final_train = pd.concat([train_risk_final, train_safe_final]).sample(frac=1, random_state=42)
     
     # 3. Compile Test Sets
     target_test = min(len(test_risk), len(test_safe))

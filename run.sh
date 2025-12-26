@@ -72,6 +72,7 @@ else
 fi
 
 # 3. Pipeline Steps
+export HF_HUB_ENABLE_HF_TRANSFER=0
 
 # Step 0: Data Snapshot (New for reproducibility)
 log "--- Step 0: Data Ingestion (Snapshot) ---"

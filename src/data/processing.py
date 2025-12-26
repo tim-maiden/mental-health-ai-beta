@@ -37,40 +37,46 @@ def create_pools(df):
     
     return pool_risk, pool_safe
 
-def compile_risk_set(train_risk, oversample_factor=1.5):
+def compile_risk_set(train_risk, min_purity=0.1):
     """
-    Oversamples risk items, giving higher weight to 'hard' positives (those looking like safe items).
+    Filters out Risk items that look too much like Safe items (likely label errors).
+    
+    Args:
+        train_risk: DataFrame containing risk items
+        min_purity: Minimum risk_density required to keep the item. 
+                   0.1 means at least 10% of neighbors must be Risk.
     """
-    risk_densities = train_risk['risk_density'].values
-    # Ambiguity Score: 1.0 means "Looks completely Safe". 0.0 means "Looks completely Risk".
-    ambiguity = 1.0 - risk_densities
+    initial_count = len(train_risk)
     
-    target_risk_count = int(len(train_risk) * oversample_factor)
+    # We want Risk items to look like Risk (high risk_density)
+    # If risk_density is 0.05, it means 95% of neighbors are Safe. Likely a bad label.
+    train_risk_filtered = train_risk[train_risk['risk_density'] >= min_purity].copy()
     
-    # Weights: Base + Ambiguity^2 (Emphasize really hard cases)
-    risk_weights = 0.2 + (ambiguity ** 2)
-    risk_weights = risk_weights / risk_weights.sum()
-    
-    train_risk_oversampled = train_risk.sample(n=target_risk_count, replace=True, weights=risk_weights, random_state=42)
-    return train_risk_oversampled
-
-def compile_safe_set(train_safe, target_count):
-    """
-    Samples safe items, giving higher weight to 'hard' negatives (those looking like risk items).
-    """
-    safe_densities = train_safe['risk_density'].values
-    
-    # Weights: Base + RiskDensity (Emphasize hard cases)
-    safe_weights = 0.1 + safe_densities
-    safe_weights = safe_weights / safe_weights.sum()
-    
-    if len(train_safe) > target_count:
-        train_safe_sampled = train_safe.sample(n=target_count, replace=False, weights=safe_weights, random_state=42)
-    else:
-        print("Warning: Oversampling Safe data to meet ratio.")
-        train_safe_sampled = train_safe.sample(n=target_count, replace=True, weights=safe_weights, random_state=42)
+    dropped_count = initial_count - len(train_risk_filtered)
+    if dropped_count > 0:
+        print(f"Dropped {dropped_count} Risk items with purity < {min_purity}")
         
-    return train_safe_sampled
+    return train_risk_filtered
+
+def compile_safe_set(train_safe, max_risk_density=0.9):
+    """
+    Filters out Safe items that look too much like Risk items (likely label errors).
+    
+    Args:
+        train_safe: DataFrame containing safe items
+        max_risk_density: Maximum risk_density allowed.
+                         0.9 means if >90% of neighbors are Risk, we drop this 'Safe' item.
+    """
+    initial_count = len(train_safe)
+    
+    # We want Safe items to look Safe (low risk_density)
+    train_safe_filtered = train_safe[train_safe['risk_density'] <= max_risk_density].copy()
+    
+    dropped_count = initial_count - len(train_safe_filtered)
+    if dropped_count > 0:
+        print(f"Dropped {dropped_count} Safe items with risk_density > {max_risk_density}")
+        
+    return train_safe_filtered
 
 def create_ambiguous_test_set(test_risk, test_safe, size=1000):
     """Creates a test set of items closest to the decision boundary (risk_density ~ 0.5)."""
