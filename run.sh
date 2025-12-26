@@ -123,8 +123,8 @@ log "--- Pipeline Complete! ---"
 # Step 7: Terminate pod if running on RunPod
 if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     log "--- Step 7: Terminating Pod ---"
-    if [ -f "./scripts/terminate_pod.sh" ]; then
-        ./scripts/terminate_pod.sh
+    if [ -f "./scripts/terminate_pod_remote.sh" ]; then
+        ./scripts/terminate_pod_remote.sh
     else
         log "Warning: terminate_pod.sh not found. Pod will continue running."
         log "You may need to terminate it manually via the RunPod console or CLI."
