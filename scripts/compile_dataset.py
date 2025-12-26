@@ -173,23 +173,45 @@ def main():
     print(f"Safe Hard Negatives (>0.5): {len(safe_hard)}")
     print(f"Safe Easy Negatives (<0.2): {len(safe_easy)}")
     
-    # F. Balance & Merge
-    # We use the Full Overlapping sets for the final training data (Guidance Phase 7)
-    target_safe_count = int(len(train_risk_clean_full) * 1.5)
+    # F. Balance & Merge (Aggressive Hard Negative Oversampling)
+    # Target: 33% Risk, 33% Safe Hard, 33% Safe Easy
     
+    target_size = len(train_risk_clean_full)
+    print(f"\n--- Balancing Dataset (Target Class Size: {target_size}) ---")
+    
+    # 1. Oversample Hard Negatives (The Critical Fix)
     n_hard = len(safe_hard)
-    n_needed_easy = max(0, target_safe_count - n_hard)
-    
-    pool_easy_mid = pd.concat([safe_easy, safe_mid])
-    if len(pool_easy_mid) > n_needed_easy:
-        safe_selected = pool_easy_mid.sample(n=n_needed_easy, random_state=42)
+    if n_hard > 0:
+        print(f"Oversampling Hard Negatives ({n_hard} -> {target_size})...")
+        # Use replace=True to duplicate samples until we reach target size
+        safe_hard_upsampled = safe_hard.sample(n=target_size, replace=True, random_state=42)
     else:
-        safe_selected = pool_easy_mid
+        print("Warning: No Hard Negatives found! Using Empty DataFrame.")
+        safe_hard_upsampled = safe_hard
         
-    final_train_safe = pd.concat([safe_hard, safe_selected])
-    final_train = pd.concat([train_risk_clean_full, final_train_safe]).sample(frac=1, random_state=42)
+    # 2. Downsample Easy Negatives (Maintenance)
+    pool_easy_mid = pd.concat([safe_easy, safe_mid])
+    if len(pool_easy_mid) > target_size:
+        print(f"Downsampling Safe Easy/Mid ({len(pool_easy_mid)} -> {target_size})...")
+        safe_easy_balanced = pool_easy_mid.sample(n=target_size, random_state=42)
+    else:
+        safe_easy_balanced = pool_easy_mid
+
+    # 3. Combine
+    final_train = pd.concat([
+        train_risk_clean_full,
+        safe_hard_upsampled, 
+        safe_easy_balanced
+    ])
     
-    print(f"\nFinal Training Set: {len(final_train)}")
+    # Shuffle
+    final_train = final_train.sample(frac=1, random_state=42).reset_index(drop=True)
+    
+    print(f"Final Training Distribution:")
+    print(f" - Risk: {len(train_risk_clean_full)}")
+    print(f" - Safe (Hard): {len(safe_hard_upsampled)}")
+    print(f" - Safe (Easy/Mid): {len(safe_easy_balanced)}")
+    print(f" - Total: {len(final_train)}")
     
     # ==========================================================
     # PHASE 2: PROCESS TEST DATA
