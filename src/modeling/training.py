@@ -63,8 +63,10 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         run_name=f"{model_id.split('/')[-1] if model_id else 'model'}-{train_size}samples",
         
         # [FIX] H100 Optimizations
+        # Changed from "reduce-overhead" to "default" to avoid CUDAGraphs memory access errors
+        # "default" mode still provides significant speedups via TorchInductor without strict memory constraints
         torch_compile=is_cloud,
-        torch_compile_mode="reduce-overhead" if is_cloud else None,
+        torch_compile_mode="default" if is_cloud else None,
         tf32=is_cloud,  # Enable TensorFloat-32 for significant speedup
     )
 
