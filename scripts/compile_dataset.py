@@ -155,8 +155,8 @@ def main():
     
     # We want a mix of Prototypes and Hard Negatives for the Safe Class.
     # e.g., 70% Prototypes, 30% Hard Negatives.
-    # [UPDATED] Increased to 45% to improve distinction of borderline content (e.g. hiking/anxiety)
-    HARD_NEGATIVE_RATIO = 0.45
+    # [UPDATED] Decreased to 30% to give the model more "easy wins" and boost confidence.
+    HARD_NEGATIVE_RATIO = 0.30
     n_hard = int(target_risk_size * HARD_NEGATIVE_RATIO)
     n_proto = target_risk_size - n_hard
     
@@ -242,7 +242,7 @@ def main():
     # 2. Compute Soft Labels for ALL Final Training Data
     # Formula: Softmax(CosineSimilarity(Item, Centroids) / Temperature)
     
-    def compute_soft_labels_masked(df, centroids, temperature=0.2, risk_indices=None):
+    def compute_soft_labels_masked(df, centroids, temperature=0.3, risk_indices=None):
         vecs = np.stack(df['embedding_vec'].values)
         # Normalize vectors
         vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
@@ -264,7 +264,8 @@ def main():
             # Apply large negative penalty to risk columns for safe rows
             # We iterate over risk indices to apply the mask column-wise
             for r_idx in risk_indices:
-                logits[safe_rows_mask, r_idx] = -100.0 # e^ -100 is effectively 0
+                # Use -10.0 instead of -100 to be numerically gentler but still effectively zero
+                logits[safe_rows_mask, r_idx] = -10.0 
         
         # Softmax
         exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True)) # Stability trick
@@ -273,11 +274,9 @@ def main():
         return probs.tolist()
 
     # Apply to Final Train and Test
-    # REVERTED: Lowered temperature to 0.2. 
-    # T=0.5 caused confidence collapse (max conf ~12%). We need sharper targets.
-    # ADDED: Risk Masking to fix "Hiking is Anxiety" problem.
-    final_train['soft_label'] = compute_soft_labels_masked(final_train, centroids, temperature=0.2, risk_indices=risk_indices)
-    test_df['soft_label'] = compute_soft_labels_masked(test_df, centroids, temperature=0.2, risk_indices=risk_indices)
+    # UPDATED: Temperature 0.3 (Goldilocks) + Gentler Masking
+    final_train['soft_label'] = compute_soft_labels_masked(final_train, centroids, temperature=0.3, risk_indices=risk_indices)
+    test_df['soft_label'] = compute_soft_labels_masked(test_df, centroids, temperature=0.3, risk_indices=risk_indices)
     
     # Also save the subreddit mapping
     import json
