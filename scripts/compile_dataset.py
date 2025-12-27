@@ -232,10 +232,17 @@ def main():
     final_subreddit_to_id = {sub: i for i, sub in enumerate(valid_subreddits)}
     print(f"Computed {len(centroids)} valid centroids.")
     
+    # Identify Risk Indices for Masking
+    # We find which subreddits in our mapping are associated with the 'Risk' class (binary_label=1)
+    # We check the original dataframe to see which subreddits are risk.
+    risk_subs = set(train_df[train_df['binary_label'] == 1]['subreddit'].unique())
+    risk_indices = [i for sub, i in final_subreddit_to_id.items() if sub in risk_subs]
+    print(f"Identified {len(risk_indices)} Risk Subreddits for Soft Label Masking.")
+    
     # 2. Compute Soft Labels for ALL Final Training Data
     # Formula: Softmax(CosineSimilarity(Item, Centroids) / Temperature)
     
-    def compute_soft_labels(df, centroids, temperature=0.5):
+    def compute_soft_labels_masked(df, centroids, temperature=0.2, risk_indices=None):
         vecs = np.stack(df['embedding_vec'].values)
         # Normalize vectors
         vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
@@ -247,6 +254,18 @@ def main():
         # Apply Temperature
         logits = logits / temperature
         
+        # --- HARD NEGATIVE CORRECTION (MASKING) ---
+        # If a sample is KNOWN SAFE (binary_label=0), it should NOT have high probability for Risk classes.
+        # We enforce this by setting the logits for Risk classes to a very low value for Safe rows.
+        if risk_indices is not None and 'binary_label' in df.columns:
+            # boolean mask of safe rows
+            safe_rows_mask = (df['binary_label'] == 0).values
+            
+            # Apply large negative penalty to risk columns for safe rows
+            # We iterate over risk indices to apply the mask column-wise
+            for r_idx in risk_indices:
+                logits[safe_rows_mask, r_idx] = -100.0 # e^ -100 is effectively 0
+        
         # Softmax
         exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True)) # Stability trick
         probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
@@ -256,8 +275,9 @@ def main():
     # Apply to Final Train and Test
     # REVERTED: Lowered temperature to 0.2. 
     # T=0.5 caused confidence collapse (max conf ~12%). We need sharper targets.
-    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.2)
-    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.2)
+    # ADDED: Risk Masking to fix "Hiking is Anxiety" problem.
+    final_train['soft_label'] = compute_soft_labels_masked(final_train, centroids, temperature=0.2, risk_indices=risk_indices)
+    test_df['soft_label'] = compute_soft_labels_masked(test_df, centroids, temperature=0.2, risk_indices=risk_indices)
     
     # Also save the subreddit mapping
     import json
