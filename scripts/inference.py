@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import pandas as pd
+import json
 from tqdm import tqdm
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -13,6 +14,18 @@ from src.config import MODEL_OUTPUT_DIR, QUANTIZED_MODEL_DIR
 
 QUANTIZED_PATH = QUANTIZED_MODEL_DIR
 STANDARD_PATH = MODEL_OUTPUT_DIR
+
+# Load dynamic threshold if available
+RISK_THRESHOLD = 0.5
+threshold_file = os.path.join(STANDARD_PATH, "threshold.json")
+if os.path.exists(threshold_file):
+    try:
+        with open(threshold_file, "r") as f:
+            config = json.load(f)
+            RISK_THRESHOLD = config.get("risk_threshold", 0.5)
+            print(f"Loaded dynamic threshold: {RISK_THRESHOLD}")
+    except Exception as e:
+        print(f"Warning: Could not load threshold.json: {e}")
 
 # Test Examples
 INPUT_TEXTS = [
@@ -153,7 +166,7 @@ def run_inference(args):
             for idx, prob in zip(keep_indices, probs):
                 safe_score = prob[0].item()
                 risk_score = prob[1].item()
-                label = "RISK" if risk_score > 0.5 else "SAFE"
+                label = "RISK" if risk_score > RISK_THRESHOLD else "SAFE"
                 confidence = max(safe_score, risk_score)
                 
                 all_results.append({
@@ -217,6 +230,6 @@ if __name__ == "__main__":
         print("-" * 80)
         for text, prob in zip(INPUT_TEXTS, probs):
             risk_score = prob[1].item()
-            label = "RISK" if risk_score > 0.5 else "SAFE"
+            label = "RISK" if risk_score > RISK_THRESHOLD else "SAFE"
             conf = max(prob[0].item(), risk_score)
             print(f"{text[:58]:<60} | {label:<5} | {conf:.1%}")

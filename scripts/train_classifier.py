@@ -8,9 +8,11 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, Data
 # Disable tokenizer parallelism to prevent deadlocks with DataLoaders
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+import json
+
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.modeling.training import get_training_args, compute_metrics
+from src.modeling.training import get_training_args, compute_metrics, CustomTrainer
 from src.config import (
     MODEL_ID, 
     TRAIN_FILE, 
@@ -89,7 +91,7 @@ def main():
         num_epochs=NUM_EPOCHS
     )
 
-    trainer = Trainer(
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],
@@ -99,7 +101,7 @@ def main():
         compute_metrics=compute_metrics,
     )
 
-    print("--- Starting Training ---")
+    print("--- Starting Training (Focal Loss) ---")
     os.makedirs(os.path.dirname(OUTPUT_DIR), exist_ok=True)
     trainer.train()
 
@@ -109,7 +111,44 @@ def main():
     
     print("\n--- Final Evaluation ---")
     print("Evaluating on Test Set...")
-    print(trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval"))
+    metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
+    print(metrics)
+    
+    # --- Dynamic Thresholding ---
+    print("\n--- Dynamic Threshold Optimization ---")
+    
+    # Get predictions (logits)
+    predictions = trainer.predict(tokenized_datasets["test"])
+    logits = predictions.predictions
+    labels = predictions.label_ids
+    
+    # Convert logits to probabilities
+    probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1).numpy()
+    risk_probs = probs[:, 1]
+    
+    best_threshold = 0.5
+    best_f1 = 0.0
+    
+    # Search for optimal threshold
+    thresholds = [i/100 for i in range(10, 91, 5)] # 0.10 to 0.90
+    print(f"Sweeping thresholds: {thresholds}")
+    
+    from sklearn.metrics import f1_score
+    
+    for thresh in thresholds:
+        preds = (risk_probs >= thresh).astype(int)
+        f1 = f1_score(labels, preds)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = thresh
+            
+    print(f"Optimal Threshold: {best_threshold} (F1: {best_f1:.4f})")
+    
+    # Save threshold to config file in model directory
+    threshold_config = {"risk_threshold": best_threshold}
+    with open(os.path.join(OUTPUT_DIR, "threshold.json"), "w") as f:
+        json.dump(threshold_config, f)
+    print(f"Saved threshold to {os.path.join(OUTPUT_DIR, 'threshold.json')}")
     
     wandb.finish()
 
