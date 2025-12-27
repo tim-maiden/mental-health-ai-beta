@@ -171,7 +171,12 @@ log "--- Step 5: Final Inference Test ---"
 python scripts/inference.py
 
 log "--- Step 6: Upload to S3 ---"
-python scripts/upload_model.py --local-dir models --s3-prefix models
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    MODELS_LOCAL_DIR="/workspace/models"
+else
+    MODELS_LOCAL_DIR="models"
+fi
+python scripts/upload_model.py --local-dir "$MODELS_LOCAL_DIR" --s3-prefix models
 
 # Upload logs at the end of a successful run
 upload_logs
