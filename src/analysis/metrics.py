@@ -3,18 +3,23 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 
-def reduce_dimensions(embeddings, n_components=100):
+def reduce_dimensions(embeddings, n_components=100, pca_model=None):
     """
     Reduces dimensions with PCA for risk density calculation.
+    Returns: (reduced_embeddings, pca_model)
     """
     print(f"Reducing dimensions with PCA ({n_components} components)...")
     if embeddings.shape[1] <= n_components:
         print(f"Warning: Embeddings dimension ({embeddings.shape[1]}) <= n_components ({n_components}). Skipping PCA.")
-        return embeddings
+        return embeddings, None
         
-    pca = PCA(n_components=n_components)
-    reduced_data = pca.fit_transform(embeddings)
-    return reduced_data
+    if pca_model is None:
+        pca_model = PCA(n_components=n_components)
+        reduced_data = pca_model.fit_transform(embeddings)
+    else:
+        reduced_data = pca_model.transform(embeddings)
+        
+    return reduced_data, pca_model
 
 def calculate_risk_density(query_embeddings, reference_embeddings, reference_labels, k=100):
     """

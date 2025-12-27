@@ -28,7 +28,7 @@ def main():
     binary_labels = df_all['binary_label'].values
     
     # 2. Dimensionality Reduction
-    reduced_data = reduce_dimensions(embeddings)
+    reduced_data, _ = reduce_dimensions(embeddings)
     
     # 3. Significance Filter (Risk Density)
     # Self-querying: query=reduced_data, reference=reduced_data

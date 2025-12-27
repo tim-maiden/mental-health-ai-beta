@@ -85,7 +85,8 @@ def main():
     training_args = get_training_args(
         output_dir=OUTPUT_DIR,
         model_id=MODEL_ID,
-        train_size=len(dataset['train'])
+        train_size=len(dataset['train']),
+        num_epochs=NUM_EPOCHS
     )
 
     trainer = Trainer(
