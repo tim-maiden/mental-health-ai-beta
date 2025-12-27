@@ -60,17 +60,13 @@ def main():
     print(f"Train Size: {len(train_df)} rows")
     print(f"Test Size:  {len(test_df)} rows")
 
-    # 3. Dimensionality Reduction (PCA) - Fit on Train, Transform Test
-    print("Running PCA (Fit on Train, Transform Test)...")
-    train_embeddings = np.stack(train_df['embedding_vec'].values)
-    test_embeddings = np.stack(test_df['embedding_vec'].values)
+    # 3. Dimensionality Reduction (PCA) - SKIPPED for Higher Accuracy
+    # We now use full embeddings for both density calculation and soft label generation
+    # to prevent semantic loss (e.g. Hiking vs Anxiety).
+    print("Skipping PCA (Using Full Embeddings)...")
     
-    train_reduced, pca_model = reduce_dimensions(train_embeddings, n_components=100)
-    # Use the fitted pca_model for test set
-    test_reduced, _ = reduce_dimensions(test_embeddings, n_components=100, pca_model=pca_model)
-    
-    train_df['reduced_vec'] = list(train_reduced)
-    test_df['reduced_vec'] = list(test_reduced)
+    # We won't create 'reduced_vec', we'll just use 'embedding_vec' directly in downstream steps.
+    # To minimize refactoring, we can alias it if needed, but better to update calls.
 
     # ==========================================================
     # PHASE 1: PROCESS TRAINING DATA (Margin-Based / Ambiguity Filtering)
@@ -90,12 +86,12 @@ def main():
     teacher_df = train_df[teacher_mask].copy()
     print(f"Teacher Index Size: {len(teacher_df)} (Non-overlapping subset)")
     
-    teacher_vecs = np.stack(teacher_df['reduced_vec'].values)
+    teacher_vecs = np.stack(teacher_df['embedding_vec'].values)
     teacher_labels = teacher_df['binary_label'].values
     
     # B. Calc Density (Pass 1)
     print(f"Calculating Density (Query=Full, Ref=Non-Overlapping, k={NEIGHBOR_K})...")
-    train_vecs = np.stack(train_df['reduced_vec'].values)
+    train_vecs = np.stack(train_df['embedding_vec'].values)
     
     density_scores_pass1 = calculate_risk_density(
         query_embeddings=train_vecs,
@@ -121,12 +117,12 @@ def main():
     teacher_safe_all = train_df[teacher_mask & (train_df['binary_label'] == 0)]
     
     ref_pass2_df = pd.concat([teacher_risk_clean, teacher_safe_all])
-    ref_pass2_vecs = np.stack(ref_pass2_df['reduced_vec'].values)
+    ref_pass2_vecs = np.stack(ref_pass2_df['embedding_vec'].values)
     ref_pass2_labels = ref_pass2_df['binary_label'].values
     
     print(f"Pass 2 Teacher Index: {len(ref_pass2_df)} (Cleaned Risk + All Safe, Non-Overlapping)")
     
-    query_safe_vecs = np.stack(train_safe_all_full['reduced_vec'].values)
+    query_safe_vecs = np.stack(train_safe_all_full['embedding_vec'].values)
     
     density_scores_pass2 = calculate_risk_density(
         query_embeddings=query_safe_vecs,
@@ -222,7 +218,7 @@ def main():
             print(f"Warning: Subreddit '{sub}' has too few samples ({sub_mask.sum()}). Skipping centroid.")
             continue
             
-        sub_vecs = np.stack(teacher_df[sub_mask]['reduced_vec'].values)
+        sub_vecs = np.stack(teacher_df[sub_mask]['embedding_vec'].values)
         centroid = np.mean(sub_vecs, axis=0)
         # Normalize centroid
         centroid = centroid / (np.linalg.norm(centroid) + 1e-9)
@@ -237,8 +233,8 @@ def main():
     # 2. Compute Soft Labels for ALL Final Training Data
     # Formula: Softmax(CosineSimilarity(Item, Centroids) / Temperature)
     
-    def compute_soft_labels(df, centroids, temperature=0.1):
-        vecs = np.stack(df['reduced_vec'].values)
+    def compute_soft_labels(df, centroids, temperature=0.5):
+        vecs = np.stack(df['embedding_vec'].values)
         # Normalize vectors
         vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
         
@@ -256,8 +252,10 @@ def main():
         return probs.tolist()
 
     # Apply to Final Train and Test
-    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.1)
-    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.1)
+    # Increased temperature to 0.5 to allow for more uncertainty/softer targets
+    # (Helps with Hiking vs Anxiety ambiguity)
+    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.5)
+    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.5)
     
     # Also save the subreddit mapping
     import json
@@ -271,9 +269,9 @@ def main():
     # ==========================================================
     print("\n--- Phase 2: Processing Test Data ---")
     
-    teacher_vecs = np.stack(final_train['reduced_vec'].values)
+    teacher_vecs = np.stack(final_train['embedding_vec'].values)
     teacher_labels = final_train['binary_label'].values
-    test_vecs = np.stack(test_df['reduced_vec'].values)
+    test_vecs = np.stack(test_df['embedding_vec'].values)
     
     test_density = calculate_risk_density(
         query_embeddings=test_vecs,
