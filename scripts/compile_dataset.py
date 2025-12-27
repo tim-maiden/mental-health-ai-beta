@@ -23,7 +23,9 @@ SAFE_DENSITY_THRESHOLD = 0.45
 RISK_DENSITY_THRESHOLD = 0.60
 
 # Hard Negative Upper Bound: Safe items with density above this likely contain label errors or are too ambiguous
-HARD_NEGATIVE_UPPER_BOUND = 0.85 
+# UPDATED: Raised to 0.98 to force "Extreme Hard Negatives" (like Hiking vs Anxiety) into the dataset.
+# We trust our Ground Truth labels more than the embedding similarity.
+HARD_NEGATIVE_UPPER_BOUND = 0.98 
 
 def main():
     print("--- Starting Sequential Dataset Compilation (Decoupled Striding) ---")
@@ -252,10 +254,10 @@ def main():
         return probs.tolist()
 
     # Apply to Final Train and Test
-    # Increased temperature to 0.5 to allow for more uncertainty/softer targets
-    # (Helps with Hiking vs Anxiety ambiguity)
-    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.5)
-    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.5)
+    # REVERTED: Lowered temperature to 0.2. 
+    # T=0.5 caused confidence collapse (max conf ~12%). We need sharper targets.
+    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.2)
+    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.2)
     
     # Also save the subreddit mapping
     import json
