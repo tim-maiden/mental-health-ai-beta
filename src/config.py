@@ -78,7 +78,6 @@ SNAPSHOTS_DIR = os.path.join(DATA_DIR, "snapshots")
 # Data Files
 # Changed to PKL for binary efficiency and type preservation
 RAW_DATA_FILE = os.path.join(DATA_DIR, "raw_latest.pkl")  
-AUDIT_RESULTS_FILE = os.path.join(OUTPUT_DIR, "significance_audit_results.pkl")
 
 TRAIN_FILE = os.path.join(DATA_DIR, "final_train.jsonl")
 TEST_FILE = os.path.join(DATA_DIR, "test.jsonl")
