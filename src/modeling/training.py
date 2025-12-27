@@ -70,7 +70,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     return TrainingArguments(
         output_dir=output_dir,
         overwrite_output_dir=True,
-        evaluation_strategy="epoch",  # Compatible with transformers 4.40.2 (required by optimum 1.19.2)
+        evaluation_strategy="epoch",
         save_strategy="epoch",
         learning_rate=2e-5,
         warmup_ratio=0.1,

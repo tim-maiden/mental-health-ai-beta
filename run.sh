@@ -84,8 +84,6 @@ else
 fi
 
 # 3. Pipeline Steps
-export HF_HUB_ENABLE_HF_TRANSFER=0
-
 # Step 1: Data Ingestion (Snapshot)
 log "--- Step 1: Data Ingestion ---"
 python scripts/ingest_data.py
@@ -109,72 +107,10 @@ python scripts/inference.py --lmsys --output data/lmsys_silver_labels.pkl --limi
 log "--- Step 5: Train Student (DistilBERT/MobileBERT) ---"
 python scripts/train_distilled.py
 
-# log "--- Step 4: Quantize Model (ONNX FP16) ---"
-#
-# # Determine model paths based on environment (matching config.py logic)
-# if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-#     MODEL_SIZE="large"
-# else
-#     MODEL_SIZE="small"
-# fi
-#
-# # Dynamic path definitions (must match config.py)
-# SOURCE_MODEL_DIR="models/risk_classifier_deberta_${MODEL_SIZE}_v1"
-# TARGET_QUANTIZED_DIR="models/risk_classifier_quantized_${MODEL_SIZE}"
-#
-# log "Source Model: $SOURCE_MODEL_DIR"
-# log "Target Quantized Dir: $TARGET_QUANTIZED_DIR"
-#
-# # Verify source model exists
-# if [ ! -d "$SOURCE_MODEL_DIR" ]; then
-#     log "Error: Source model directory not found: $SOURCE_MODEL_DIR"
-#     log "Please ensure training completed successfully in Step 3."
-#     exit 1
-# fi
-#
-# mkdir -p "$TARGET_QUANTIZED_DIR"
-#
-# # Verify optimum-cli exists
-# if ! command -v optimum-cli &> /dev/null; then
-#     log "Error: optimum-cli not found. Check installation."
-#     exit 1
-# fi
-#
-# log "Exporting to ONNX (FP16)..."
-#
-# # [FIX] Added --device cuda to support FP16 export (required on GPU)
-# DEVICE_OPTS=""
-# if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-#     DEVICE_OPTS="--device cuda"
-# fi
-#
-# log "ONNX Export Config:"
-# log "  - Model: $SOURCE_MODEL_DIR"
-# log "  - Device Opts: '$DEVICE_OPTS'"
-# log "  - Output: $TARGET_QUANTIZED_DIR/"
-#
-# if ! optimum-cli export onnx --model "$SOURCE_MODEL_DIR" --task text-classification --dtype fp16 --opset 17 $DEVICE_OPTS "$TARGET_QUANTIZED_DIR/"; then
-#     log "Error: ONNX export failed. Check the model directory and optimum-cli installation."
-#     exit 1
-# fi
-#
-# # Rename for Inference Compatibility
-# if [ -f "$TARGET_QUANTIZED_DIR/model.onnx" ]; then
-#     mv "$TARGET_QUANTIZED_DIR/model.onnx" "$TARGET_QUANTIZED_DIR/model_quantized.onnx"
-# fi
-#
-# # Copy config files
-# log "Copying model artifacts..."
-# cp "$SOURCE_MODEL_DIR/config.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
-# cp "$SOURCE_MODEL_DIR/tokenizer_config.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
-# cp "$SOURCE_MODEL_DIR/vocab.txt" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
-# cp "$SOURCE_MODEL_DIR/tokenizer.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
-# cp "$SOURCE_MODEL_DIR/special_tokens_map.json" "$TARGET_QUANTIZED_DIR/" 2>/dev/null || true
-
-log "--- Step 5: Final Inference Test ---"
+log "--- Step 6: Final Inference Test ---"
 python scripts/inference.py
 
-log "--- Step 6: Upload to S3 ---"
+log "--- Step 7: Upload to S3 ---"
 if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
     MODELS_LOCAL_DIR="/workspace/models"
 else
@@ -187,9 +123,9 @@ upload_logs
 
 log "--- Pipeline Complete! ---"
 
-# Step 7: Terminate pod if running on RunPod
+# Step 8: Terminate pod if running on RunPod
 if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-    log "--- Step 7: Terminating Pod ---"
+    log "--- Step 8: Terminating Pod ---"
     if [ -f "./scripts/terminate_pod_remote.sh" ]; then
         bash ./scripts/terminate_pod_remote.sh || log "Warning: Pod termination script failed, but pipeline completed successfully."
     else
