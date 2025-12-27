@@ -124,15 +124,16 @@ log "--- Step 3: Train Teacher (DeBERTa) ---"
 # This trains the model that learns to imitate the Reddit k-NN distribution
 python scripts/train_classifier.py
 
-# Step 4: Inference on Target Domain (LMSYS - Silver Labeling)
-log "--- Step 4: Generate Silver Labels (LMSYS) ---"
-# Run inference on LMSYS data to generate soft labels (probabilities)
-# Save output to data/lmsys_silver_labels.pkl
-python scripts/inference.py --lmsys --output data/lmsys_silver_labels.pkl --limit 50000
+# Step 4: Inference on Target Domain (WildChat - Silver Labeling)
+# log "--- Step 4: Generate Silver Labels (WildChat via Supabase) ---"
+# # Run inference on WildChat data from Supabase to generate soft labels
+# # Save output to data/wildchat_silver_labels.pkl
+# # Use --limit 50000 or however many rows you want to label for distillation
+# python scripts/inference.py --wildchat --output data/wildchat_silver_labels.pkl --limit 50000
 
 # Step 5: Train Student Model (Distillation)
-log "--- Step 5: Train Student (DistilBERT/MobileBERT) ---"
-python scripts/train_distilled.py
+# log "--- Step 5: Train Student (DistilBERT/MobileBERT) ---"
+# python scripts/train_distilled.py
 
 log "--- Step 6: Final Inference Test ---"
 python scripts/inference.py

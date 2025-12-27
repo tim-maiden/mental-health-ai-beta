@@ -8,6 +8,7 @@ from tqdm import tqdm
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.modeling.inference import load_model, predict_batch, is_clean_english, get_device
+from src.core.clients import supabase  # Import supabase client
 from datasets import load_dataset
 
 # Configuration - Use environment-aware paths from config
@@ -43,6 +44,10 @@ INPUT_TEXTS = [
 ]
 
 def load_lmsys_generator(batch_size=32, limit=None):
+    """
+    Deprecated: Prefer loading WildChat from Supabase.
+    Loads lmsys-chat-1m dataset in stream mode.
+    """
     print(f"Loading lmsys-chat-1m dataset (Stream mode)...")
     dataset = load_dataset("lmsys/lmsys-chat-1m", split="train", streaming=True)
     
@@ -76,40 +81,63 @@ def load_lmsys_generator(batch_size=32, limit=None):
     if batch_texts:
         yield batch_ids, batch_texts
 
-def load_wildchat_generator(batch_size=32, limit=None):
-    print(f"Loading allenai/WildChat-1M dataset (Stream mode)...")
-    dataset = load_dataset("allenai/WildChat-1M", split="train", streaming=True)
+def load_wildchat_generator_from_supabase(batch_size=32, limit=None):
+    """
+    Generator that fetches WildChat chunks from Supabase.
+    """
+    print(f"Loading WildChat data from Supabase (Stream mode)...")
     
-    batch_texts = []
-    batch_ids = []
-    count = 0
+    offset = 0
+    total_fetched = 0
+    fetch_size = 1000  # Number of rows to fetch from DB at once
     
-    for row in dataset:
-        conversation = row['conversation']
-        row_id = row['conversation_hash'] # Use conversation_hash
-        if conversation is None: continue
-        
-        user_text = None
-        for turn in conversation:
-            if turn['role'] == 'user':
-                user_text = turn['content']
-                break 
-        
-        if user_text:
-            batch_texts.append(user_text)
-            batch_ids.append(row_id)
-            
-            if len(batch_texts) == batch_size:
-                yield batch_ids, batch_texts
-                batch_texts = []
-                batch_ids = []
+    # Buffer to hold rows from DB until we yield them in batch_size chunks
+    buffer_ids = []
+    buffer_texts = []
+    
+    while True:
+        # Check if we hit the limit
+        if limit and total_fetched >= limit:
+            break
+
+        # Fetch batch from Supabase
+        try:
+            # Adjust fetch_size if we're near the limit
+            current_fetch = fetch_size
+            if limit and (limit - total_fetched) < fetch_size:
+                current_fetch = limit - total_fetched
                 
-            count += 1
-            if limit and count >= limit:
-                break
-    
-    if batch_texts:
-        yield batch_ids, batch_texts
+            response = supabase.table("wildchat_embeddings")\
+                .select("id, input")\
+                .range(offset, offset + current_fetch - 1)\
+                .execute()
+            
+            rows = response.data
+            if not rows:
+                break # No more data
+                
+            offset += len(rows)
+            total_fetched += len(rows)
+            
+            # Add to buffer
+            for row in rows:
+                buffer_ids.append(row['id'])
+                buffer_texts.append(row['input'])
+                
+                # Yield when buffer is full enough
+                if len(buffer_ids) >= batch_size:
+                    yield buffer_ids[:batch_size], buffer_texts[:batch_size]
+                    # Remove yielded items
+                    buffer_ids = buffer_ids[batch_size:]
+                    buffer_texts = buffer_texts[batch_size:]
+            
+        except Exception as e:
+            print(f"Error fetching from Supabase: {e}")
+            break
+            
+    # Yield remaining
+    if buffer_ids:
+        yield buffer_ids, buffer_texts
 
 def run_inference(args):
     # Determine model path
@@ -127,19 +155,21 @@ def run_inference(args):
     model, tokenizer, device = load_model(model_path)
         
     if args.wildchat:
-        default_output = os.path.join(OUTPUT_DIR, "wildchat_risk_scores.pkl")
-        data_gen = load_wildchat_generator(batch_size=args.batch_size, limit=args.limit)
-        dataset_name = "WildChat"
+        default_output = os.path.join(OUTPUT_DIR, "wildchat_silver_labels.pkl")
+        data_gen = load_wildchat_generator_from_supabase(batch_size=args.batch_size, limit=args.limit)
+        dataset_name = "WildChat (Supabase)"
     else:
         default_output = os.path.join(OUTPUT_DIR, "lmsys_risk_scores.pkl")
         data_gen = load_lmsys_generator(batch_size=args.batch_size, limit=args.limit)
-        dataset_name = "LMSYS"
+        dataset_name = "LMSYS (HF)"
 
     output_file = args.output if args.output else default_output
     print(f"Collecting results to save to: {output_file}")
     
     all_results = []
     
+    # TQDM needs total count to show progress bar properly, but streaming from DB makes it hard.
+    # We'll just use the limit if provided, else it will just count up.
     pbar = tqdm(data_gen, total=(args.limit // args.batch_size) if args.limit else None, unit="batch", desc=f"Processing {dataset_name}")
     
     for batch_ids, batch_texts in pbar:
@@ -147,13 +177,13 @@ def run_inference(args):
         skip_indices = []
         
         for i, text in enumerate(batch_texts):
-            if is_clean_english(text):
-                keep_indices.append(i)
+            # Basic validation
+            if text and isinstance(text, str) and len(text.strip()) > 0:
+                 # Check English only if desired, though we filtered in loader.
+                 # Let's trust the DB data is mostly clean or check minimal length
+                 keep_indices.append(i)
             else:
                 skip_indices.append(i)
-        
-        # Prepare batch results container
-        # We'll just append dicts to all_results
         
         if keep_indices:
             valid_texts = [batch_texts[i] for i in keep_indices]
@@ -166,7 +196,7 @@ def run_inference(args):
                     mapping = json.load(f)
                 id_to_sub = {v: k for k, v in mapping.items()}
             except:
-                print("Warning: Could not load subreddit mapping. Using raw indices.")
+                # print("Warning: Could not load subreddit mapping. Using raw indices.")
                 id_to_sub = {}
 
             for idx, prob in zip(keep_indices, probs):
@@ -206,7 +236,7 @@ def run_inference(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run inference on test texts or LMSYS/WildChat dataset.")
     parser.add_argument("--lmsys", action="store_true", help="Run inference on LMSYS chat dataset")
-    parser.add_argument("--wildchat", action="store_true", help="Run inference on WildChat dataset")
+    parser.add_argument("--wildchat", action="store_true", help="Run inference on WildChat dataset (from Supabase)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples")
     parser.add_argument("--batch-size", type=int, default=32, help="Inference batch size")
     parser.add_argument("--output", type=str, default=None, help="Output PKL file path")

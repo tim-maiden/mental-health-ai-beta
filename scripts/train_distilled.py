@@ -21,7 +21,8 @@ from src.config import (
 
 # Config
 STUDENT_MODEL_ID = "distilbert-base-uncased"
-INPUT_FILE = os.path.join(DATA_DIR, "lmsys_silver_labels.pkl")
+# INPUT_FILE = os.path.join(DATA_DIR, "lmsys_silver_labels.pkl")
+INPUT_FILE = os.path.join(DATA_DIR, "wildchat_silver_labels.pkl")
 OUTPUT_DIR = "models/final_student_distilbert"
 NUM_EPOCHS = 5
 

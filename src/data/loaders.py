@@ -4,7 +4,7 @@ import random
 import pandas as pd
 import kagglehub
 from datasets import load_dataset
-from src.core.clients import encoding
+from src.core.clients import encoding, supabase
 from src.core.utils import chunk_text_sliding_window
 
 def load_lmsys_chat_dataset():
@@ -108,6 +108,44 @@ def load_wildchat_dataset(limit=5000):
 
     print(f"Finished processing WildChat dataset. Generated {len(df_chat_chunks)} chunks from {conversation_count} conversations.")
     return df_chat_chunks
+
+def load_wildchat_dataset_from_supabase(limit=50000):
+    """Fetches WildChat chunks from Supabase instead of Hugging Face."""
+    print(f"Fetching WildChat data from Supabase (limit={limit})...")
+    
+    # Supabase fetch loop to handle limits (default max is usually 1000)
+    all_rows = []
+    batch_size = 1000
+    offset = 0
+    
+    while True:
+        try:
+            # We select the columns needed for inference/distillation
+            # Assuming table is named 'wildchat_embeddings' per upload script
+            response = supabase.table("wildchat_embeddings")\
+                .select("id, input, input_tokens")\
+                .range(offset, offset + batch_size - 1)\
+                .execute()
+            
+            rows = response.data
+            if not rows:
+                break
+                
+            all_rows.extend(rows)
+            offset += len(rows)
+            
+            print(f"Fetched {len(all_rows)} rows...", end="\r")
+            
+            if len(all_rows) >= limit:
+                break
+                
+        except Exception as e:
+            print(f"\nError fetching from Supabase: {e}")
+            break
+            
+    df = pd.DataFrame(all_rows)
+    print(f"\nLoaded {len(df)} rows from Supabase.")
+    return df
 
 def load_reddit_mental_health_dataset():
     """Loads and processes the Reddit mental health dataset with cleaning."""
@@ -304,4 +342,3 @@ def load_reddit_control_dataset():
     
     print(f"\nFinished processing Reddit Control dataset. Total rows: {len(df)}")
     return df
-
