@@ -92,18 +92,28 @@ fi
 # 3. Pipeline Steps
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
-# Step 0: Data Snapshot (New for reproducibility)
-log "--- Step 0: Data Ingestion (Snapshot) ---"
+# Step 1: Data Ingestion (Snapshot)
+log "--- Step 1: Data Ingestion ---"
 python scripts/ingest_data.py
 
-log "--- Step 1: Statistical Audit (Risk Density) ---"
-python scripts/audit_embeddings.py
-
-log "--- Step 2: Dataset Compilation (Donut Strategy) ---"
+# Step 2: Compile Dataset (Teacher Training Data)
+log "--- Step 2: Dataset Compilation (Soft Labels via k-NN) ---"
 python scripts/compile_dataset.py
 
-log "--- Step 3: Train Classifier (ModernBERT/DeBERTa) ---"
+# Step 3: Train Teacher Model (DeBERTa)
+log "--- Step 3: Train Teacher (DeBERTa) ---"
+# This trains the model that learns to imitate the Reddit k-NN distribution
 python scripts/train_classifier.py
+
+# Step 4: Inference on Target Domain (LMSYS - Silver Labeling)
+log "--- Step 4: Generate Silver Labels (LMSYS) ---"
+# Run inference on LMSYS data to generate soft labels (probabilities)
+# Save output to data/lmsys_silver_labels.pkl
+python scripts/inference.py --lmsys --output data/lmsys_silver_labels.pkl --limit 50000
+
+# Step 5: Train Student Model (Distillation)
+log "--- Step 5: Train Student (DistilBERT/MobileBERT) ---"
+python scripts/train_distilled.py
 
 # log "--- Step 4: Quantize Model (ONNX FP16) ---"
 #

@@ -3,6 +3,7 @@ import sys
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.neighbors import NearestNeighbors
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -194,90 +195,65 @@ def main():
     # ==========================================================
     # PHASE 1.5: GENERATE SOFT LABELS (EMBEDDING DISTILLATION)
     # ==========================================================
-    print("\n--- Phase 1.5: Generating Soft Labels (Embedding Distillation) ---")
+    print("\n--- Phase 1.5: Generating Soft Labels (Weighted k-NN) ---")
     
-    # 1. Compute Centroids for each Subreddit in the TRAINING set
-    # (We only use the "pure" teacher set to define centroids to avoid noise)
-    # Note: We need 'subreddit' column.
-    
-    # Check if 'subreddit' exists
     if 'subreddit' not in teacher_df.columns:
         print("Error: 'subreddit' column missing. Cannot generate soft labels.")
         sys.exit(1)
-        
-    unique_subreddits = sorted(train_df['subreddit'].unique())
-    subreddit_to_id = {sub: i for i, sub in enumerate(unique_subreddits)}
-    print(f"Found {len(unique_subreddits)} unique subreddits.")
-    print(f"Subreddits: {unique_subreddits[:5]} ...")
-    
-    # Calculate Centroids (Mean Vector of Teacher samples per subreddit)
-    centroids = []
-    valid_subreddits = []
-    
-    for sub in unique_subreddits:
-        sub_mask = teacher_df['subreddit'] == sub
-        if sub_mask.sum() < 5:
-            print(f"Warning: Subreddit '{sub}' has too few samples ({sub_mask.sum()}). Skipping centroid.")
-            continue
-            
-        sub_vecs = np.stack(teacher_df[sub_mask]['embedding_vec'].values)
-        centroid = np.mean(sub_vecs, axis=0)
-        # Normalize centroid
-        centroid = centroid / (np.linalg.norm(centroid) + 1e-9)
-        centroids.append(centroid)
-        valid_subreddits.append(sub)
-        
-    centroids = np.stack(centroids)
-    # Re-map indices to valid subreddits only
-    final_subreddit_to_id = {sub: i for i, sub in enumerate(valid_subreddits)}
-    print(f"Computed {len(centroids)} valid centroids.")
-    
-    # Identify Risk Indices for Masking
-    # We find which subreddits in our mapping are associated with the 'Risk' class (binary_label=1)
-    # We check the original dataframe to see which subreddits are risk.
-    risk_subs = set(train_df[train_df['binary_label'] == 1]['subreddit'].unique())
-    risk_indices = [i for sub, i in final_subreddit_to_id.items() if sub in risk_subs]
-    print(f"Identified {len(risk_indices)} Risk Subreddits for Soft Label Masking.")
-    
-    # 2. Compute Soft Labels for ALL Final Training Data
-    # Formula: Softmax(CosineSimilarity(Item, Centroids) / Temperature)
-    
-    def compute_soft_labels_masked(df, centroids, temperature=0.3, risk_indices=None):
-        vecs = np.stack(df['embedding_vec'].values)
-        # Normalize vectors
-        vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
-        
-        # Cosine Similarity (Dot product of normalized vectors)
-        # (N_samples, Dim) @ (N_centroids, Dim).T -> (N_samples, N_centroids)
-        logits = np.dot(vecs_norm, centroids.T)
-        
-        # Apply Temperature
-        logits = logits / temperature
-        
-        # --- HARD NEGATIVE CORRECTION (MASKING) ---
-        # If a sample is KNOWN SAFE (binary_label=0), it should NOT have high probability for Risk classes.
-        # We enforce this by setting the logits for Risk classes to a very low value for Safe rows.
-        if risk_indices is not None and 'binary_label' in df.columns:
-            # boolean mask of safe rows
-            safe_rows_mask = (df['binary_label'] == 0).values
-            
-            # Apply large negative penalty to risk columns for safe rows
-            # We iterate over risk indices to apply the mask column-wise
-            for r_idx in risk_indices:
-                # Use -10.0 instead of -100 to be numerically gentler but still effectively zero
-                logits[safe_rows_mask, r_idx] = -10.0 
-        
-        # Softmax
-        exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True)) # Stability trick
-        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-        
-        return probs.tolist()
 
-    # Apply to Final Train and Test
-    # UPDATED: Temperature 0.3 (Goldilocks) + Gentler Masking
-    final_train['soft_label'] = compute_soft_labels_masked(final_train, centroids, temperature=0.3, risk_indices=risk_indices)
-    test_df['soft_label'] = compute_soft_labels_masked(test_df, centroids, temperature=0.3, risk_indices=risk_indices)
+    # Prepare Subreddit Map
+    unique_subreddits = sorted(train_df['subreddit'].unique())
+    final_subreddit_to_id = {sub: i for i, sub in enumerate(unique_subreddits)}
+    print(f"Found {len(unique_subreddits)} unique subreddits.")
     
+    def compute_soft_labels_knn(query_df, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=None):
+        """
+        Computes soft labels using Weighted k-NN.
+        Returns: List of probability distributions (size: N_samples x N_classes).
+        """
+        print(f"Computing k-NN Soft Labels (k={n_neighbors}, temp={temperature})...")
+        
+        # 1. Prepare Vectors
+        query_vecs = np.stack(query_df['embedding_vec'].values)
+        teacher_vecs = np.stack(teacher_df['embedding_vec'].values)
+        teacher_subs = teacher_df['subreddit'].map(subreddit_map).values  # Map to Int IDs
+        num_classes = len(subreddit_map)
+
+        # 2. Build Index & Query
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine', n_jobs=-1)
+        nbrs.fit(teacher_vecs)
+        distances, indices = nbrs.kneighbors(query_vecs)
+        
+        # 3. Compute Soft Labels
+        soft_labels = []
+        
+        for i in range(len(query_vecs)):
+            dists = distances[i]
+            neighbor_indices = indices[i]
+            neighbor_classes = teacher_subs[neighbor_indices]
+            
+            # Inverse Distance Weighting (Add epsilon)
+            weights = 1.0 / (dists + 1e-6)
+            
+            # Aggregate weights by class
+            class_scores = np.zeros(num_classes)
+            np.add.at(class_scores, neighbor_classes, weights)
+            
+            # Apply Temperature Scaling to the aggregated scores (logits)
+            logits = class_scores / temperature
+            
+            # Softmax
+            exp_logits = np.exp(logits - np.max(logits)) # Stability
+            probs = exp_logits / np.sum(exp_logits)
+            
+            soft_labels.append(probs.tolist())
+            
+        return soft_labels
+
+    # Apply to Final Train and Test using the teacher set
+    final_train['soft_label'] = compute_soft_labels_knn(final_train, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=final_subreddit_to_id)
+    test_df['soft_label'] = compute_soft_labels_knn(test_df, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=final_subreddit_to_id)
+
     # Also save the subreddit mapping
     import json
     mapping_file = os.path.join(DATA_DIR, "subreddit_mapping.json")
