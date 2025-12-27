@@ -35,14 +35,28 @@ class FocalLoss(nn.Module):
 
 class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
-        labels = inputs.get("labels")
-        # forward pass
+        # inputs.get("labels") usually contains the binary/hard labels
+        # We need the soft labels. The dataset mapper should have put them in "soft_labels"
+        # However, the DataCollator might rename columns or strict checking might apply.
+        # Ideally, we mapped 'soft_label' to 'labels' in the tokenization step if we want standard behavior.
+        
+        # We'll assume inputs["labels"] IS the soft distribution (Float Tensor)
+        # The training script must ensure this mapping happens.
+        
+        labels = inputs.get("labels") # Expected: (batch, num_classes) probabilities
         outputs = model(**inputs)
         logits = outputs.get("logits")
         
-        # Compute custom loss
-        loss_fct = FocalLoss(gamma=3.0)
-        loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
+        # KL Divergence Loss
+        # Input: Log_Softmax(logits)
+        # Target: Probabilities (labels)
+        
+        log_probs = F.log_softmax(logits, dim=-1)
+        
+        # nn.KLDivLoss expects input to be log-probabilities and target to be probabilities.
+        # batchmean is mathematically correct for KL.
+        loss_fct = nn.KLDivLoss(reduction="batchmean")
+        loss = loss_fct(log_probs, labels)
         
         return (loss, outputs) if return_outputs else loss
 
@@ -104,37 +118,23 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     )
 
 def compute_metrics(eval_pred):
-    # Load metrics locally to avoid issues
-    accuracy_metric = evaluate.load("accuracy")
-    precision_metric = evaluate.load("precision")
-    recall_metric = evaluate.load("recall")
-    f1_metric = evaluate.load("f1")
+    # This metric function is designed for BINARY classification.
+    # For Multilabel/Soft-Label, we need to adapt.
+    # Assuming the first half of classes are "Safe" (or mapping provided).
+    # Actually, simpler: We calculate Top-1 Accuracy against the Soft Label's ArgMax.
     
     predictions, labels = eval_pred
-    predictions = np.argmax(predictions, axis=1)
+    # Predictions: (batch, num_classes) logits
+    # Labels: (batch, num_classes) probabilities
     
-    acc = accuracy_metric.compute(predictions=predictions, references=labels)
-    prec = precision_metric.compute(predictions=predictions, references=labels)
-    rec = recall_metric.compute(predictions=predictions, references=labels)
-    f1 = f1_metric.compute(predictions=predictions, references=labels)
+    # 1. Hard Accuracy (Did we predict the highest probability class?)
+    pred_ids = np.argmax(predictions, axis=1)
+    label_ids = np.argmax(labels, axis=1)
     
-    # Add mean probability if available (for calibration monitoring)
-    metrics = {
-        "accuracy": acc["accuracy"],
-        "precision": prec["precision"],
-        "recall": rec["recall"],
-        "f1": f1["f1"]
+    accuracy_metric = evaluate.load("accuracy")
+    acc = accuracy_metric.compute(predictions=pred_ids, references=label_ids)
+    
+    return {
+        "accuracy": acc["accuracy"]
     }
-    
-    if hasattr(eval_pred, "predictions") and isinstance(eval_pred.predictions, np.ndarray):
-        # eval_pred.predictions is logits. Apply softmax to get probabilities.
-        # Check dimensions. If (n_samples, n_classes), we want prob of class 1.
-        
-        logits = eval_pred.predictions
-        # Simple softmax
-        probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
-        # Avg prob of Risk (class 1)
-        avg_risk_prob = np.mean(probs[:, 1])
-        metrics["avg_risk_prob"] = avg_risk_prob
-        
-    return metrics
+

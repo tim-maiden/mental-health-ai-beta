@@ -163,27 +163,41 @@ def run_inference(args):
             valid_texts = [batch_texts[i] for i in keep_indices]
             probs = predict_batch(model, tokenizer, valid_texts, device, is_quantized=is_quantized)
             
+            # Load mapping
+            try:
+                with open("data/subreddit_mapping.json", "r") as f:
+                    mapping = json.load(f)
+                id_to_sub = {v: k for k, v in mapping.items()}
+            except:
+                print("Warning: Could not load subreddit mapping. Using raw indices.")
+                id_to_sub = {}
+
             for idx, prob in zip(keep_indices, probs):
-                safe_score = prob[0].item()
-                risk_score = prob[1].item()
-                label = "RISK" if risk_score > RISK_THRESHOLD else "SAFE"
-                confidence = max(safe_score, risk_score)
+                # prob is now a distribution over N subreddits
+                # Find top class
+                top_idx = torch.argmax(prob).item()
+                top_prob = prob[top_idx].item()
+                top_label = id_to_sub.get(top_idx, str(top_idx))
+                
+                # Heuristic Risk Score: Sum of probs of known risk subreddits?
+                # Or just output the top prediction.
+                # For now, let's output top label + prob.
                 
                 all_results.append({
                     'id': batch_ids[idx],
                     'text': batch_texts[idx],
-                    'label': label,
-                    'confidence': float(confidence),
-                    'risk_score': float(risk_score)
+                    'top_label': top_label,
+                    'confidence': float(top_prob),
+                    'full_dist': prob.tolist()
                 })
 
         for idx in skip_indices:
             all_results.append({
                 'id': batch_ids[idx],
                 'text': batch_texts[idx],
-                'label': "N/A",
+                'top_label': "N/A",
                 'confidence': 0.0,
-                'risk_score': 0.0
+                'full_dist': []
             })
             
     # Save to PKL
@@ -226,10 +240,20 @@ if __name__ == "__main__":
         model, tokenizer, device = load_model(model_path, is_quantized=is_quantized)
         probs = predict_batch(model, tokenizer, INPUT_TEXTS, device, is_quantized=is_quantized)
         
-        print(f"\n{'TEXT':<60} | {'LABEL':<5} | {'CONFIDENCE'}")
-        print("-" * 80)
+        # Load mapping
+        try:
+            with open("data/subreddit_mapping.json", "r") as f:
+                mapping = json.load(f)
+            id_to_sub = {v: k for k, v in mapping.items()}
+        except:
+            print("Warning: Could not load subreddit mapping.")
+            id_to_sub = {}
+
+        print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'}")
+        print("-" * 90)
         for text, prob in zip(INPUT_TEXTS, probs):
-            risk_score = prob[1].item()
-            label = "RISK" if risk_score > RISK_THRESHOLD else "SAFE"
-            conf = max(prob[0].item(), risk_score)
-            print(f"{text[:58]:<60} | {label:<5} | {conf:.1%}")
+            top_idx = torch.argmax(prob).item()
+            top_prob = prob[top_idx].item()
+            label = id_to_sub.get(top_idx, str(top_idx))
+            
+            print(f"{text[:58]:<60} | {label:<20} | {top_prob:.1%}")

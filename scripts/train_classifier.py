@@ -55,30 +55,36 @@ def main():
         "test": TEST_FILE
     })
     
+    # Load subreddit mapping to determine num_labels
+    with open("data/subreddit_mapping.json", "r") as f:
+        subreddit_map = json.load(f)
+    num_labels = len(subreddit_map)
+    print(f"Loaded {num_labels} classes from subreddit_mapping.json")
+
     print(f"--- Loading Tokenizer ({MODEL_ID}) ---")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 
     def preprocess_function(examples):
         # Tokenize
         tokenized = tokenizer(examples["text"], truncation=True, max_length=512)
-        # Rename 'label' to 'labels' to match Model signature exactly
-        tokenized["labels"] = examples["label"]
+        # CRITICAL: Map 'soft_label' to 'labels' for the CustomTrainer
+        tokenized["labels"] = examples["soft_label"]
         return tokenized
 
     # CRITICAL FIX: Remove the raw 'text' and old 'label' columns so Trainer doesn't get confused
     tokenized_datasets = dataset.map(
         preprocess_function, 
         batched=True, 
-        remove_columns=["text", "label", "subreddit"] if "subreddit" in dataset["train"].column_names else ["text", "label"]
+        remove_columns=dataset["train"].column_names # Remove all original cols to be safe
     )
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     print(f"--- Initializing Model ---")
+    # For soft targets, we still use SequenceClassification, but we ignore the default loss in our Trainer
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_ID, 
-        num_labels=2,
-        label2id={"Safe": 0, "Risk": 1},
-        id2label={0: "Safe", 1: "Risk"}
+        num_labels=num_labels,
+        problem_type="multi_label_classification" # Hint to HF (though we override loss anyway)
     )
 
     # Note: Model compilation is now handled by Trainer via torch_compile parameter
@@ -114,41 +120,10 @@ def main():
     metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
     print(metrics)
     
-    # --- Dynamic Thresholding ---
-    print("\n--- Dynamic Threshold Optimization ---")
-    
-    # Get predictions (logits)
-    predictions = trainer.predict(tokenized_datasets["test"])
-    logits = predictions.predictions
-    labels = predictions.label_ids
-    
-    # Convert logits to probabilities
-    probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1).numpy()
-    risk_probs = probs[:, 1]
-    
-    best_threshold = 0.5
-    best_f1 = 0.0
-    
-    # Search for optimal threshold
-    thresholds = [i/100 for i in range(10, 91, 5)] # 0.10 to 0.90
-    print(f"Sweeping thresholds: {thresholds}")
-    
-    from sklearn.metrics import f1_score
-    
-    for thresh in thresholds:
-        preds = (risk_probs >= thresh).astype(int)
-        f1 = f1_score(labels, preds)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = thresh
-            
-    print(f"Optimal Threshold: {best_threshold} (F1: {best_f1:.4f})")
-    
-    # Save threshold to config file in model directory
-    threshold_config = {"risk_threshold": best_threshold}
-    with open(os.path.join(OUTPUT_DIR, "threshold.json"), "w") as f:
-        json.dump(threshold_config, f)
-    print(f"Saved threshold to {os.path.join(OUTPUT_DIR, 'threshold.json')}")
+    # --- Dynamic Thresholding Skipped for Multilabel ---
+    # For Soft-Label distillation, we don't optimize a single binary threshold immediately.
+    # The output is a probability distribution over subreddits.
+    # We will rely on inference-time logic to interpret this distribution.
     
     wandb.finish()
 

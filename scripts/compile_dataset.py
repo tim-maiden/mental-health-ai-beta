@@ -192,6 +192,79 @@ def main():
     print(f" - Total: {len(final_train)}")
     
     # ==========================================================
+    # PHASE 1.5: GENERATE SOFT LABELS (EMBEDDING DISTILLATION)
+    # ==========================================================
+    print("\n--- Phase 1.5: Generating Soft Labels (Embedding Distillation) ---")
+    
+    # 1. Compute Centroids for each Subreddit in the TRAINING set
+    # (We only use the "pure" teacher set to define centroids to avoid noise)
+    # Note: We need 'subreddit' column.
+    
+    # Check if 'subreddit' exists
+    if 'subreddit' not in teacher_df.columns:
+        print("Error: 'subreddit' column missing. Cannot generate soft labels.")
+        sys.exit(1)
+        
+    unique_subreddits = sorted(train_df['subreddit'].unique())
+    subreddit_to_id = {sub: i for i, sub in enumerate(unique_subreddits)}
+    print(f"Found {len(unique_subreddits)} unique subreddits.")
+    print(f"Subreddits: {unique_subreddits[:5]} ...")
+    
+    # Calculate Centroids (Mean Vector of Teacher samples per subreddit)
+    centroids = []
+    valid_subreddits = []
+    
+    for sub in unique_subreddits:
+        sub_mask = teacher_df['subreddit'] == sub
+        if sub_mask.sum() < 5:
+            print(f"Warning: Subreddit '{sub}' has too few samples ({sub_mask.sum()}). Skipping centroid.")
+            continue
+            
+        sub_vecs = np.stack(teacher_df[sub_mask]['reduced_vec'].values)
+        centroid = np.mean(sub_vecs, axis=0)
+        # Normalize centroid
+        centroid = centroid / (np.linalg.norm(centroid) + 1e-9)
+        centroids.append(centroid)
+        valid_subreddits.append(sub)
+        
+    centroids = np.stack(centroids)
+    # Re-map indices to valid subreddits only
+    final_subreddit_to_id = {sub: i for i, sub in enumerate(valid_subreddits)}
+    print(f"Computed {len(centroids)} valid centroids.")
+    
+    # 2. Compute Soft Labels for ALL Final Training Data
+    # Formula: Softmax(CosineSimilarity(Item, Centroids) / Temperature)
+    
+    def compute_soft_labels(df, centroids, temperature=0.1):
+        vecs = np.stack(df['reduced_vec'].values)
+        # Normalize vectors
+        vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
+        
+        # Cosine Similarity (Dot product of normalized vectors)
+        # (N_samples, Dim) @ (N_centroids, Dim).T -> (N_samples, N_centroids)
+        logits = np.dot(vecs_norm, centroids.T)
+        
+        # Apply Temperature
+        logits = logits / temperature
+        
+        # Softmax
+        exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True)) # Stability trick
+        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+        
+        return probs.tolist()
+
+    # Apply to Final Train and Test
+    final_train['soft_label'] = compute_soft_labels(final_train, centroids, temperature=0.1)
+    test_df['soft_label'] = compute_soft_labels(test_df, centroids, temperature=0.1)
+    
+    # Also save the subreddit mapping
+    import json
+    mapping_file = "data/subreddit_mapping.json"
+    with open(mapping_file, "w") as f:
+        json.dump(final_subreddit_to_id, f)
+    print(f"Saved subreddit mapping to {mapping_file}")
+
+    # ==========================================================
     # PHASE 2: PROCESS TEST DATA
     # ==========================================================
     print("\n--- Phase 2: Processing Test Data ---")
@@ -217,8 +290,25 @@ def main():
     
     def save_jsonl(dataframe, filename):
         out = dataframe.rename(columns={'input': 'text'})
+        # Save soft labels as the primary label for training
+        # We also keep the hard 'binary_label' for evaluation metrics if needed, but the model trainer
+        # will look for 'label' or 'labels'. 
+        # We will name the soft label column 'label' so the HuggingFace trainer picks it up automatically.
+        # BUT: HF Trainer expects 'label' to be int for classification or float for regression.
+        # For Multi-Label/Soft-Target, we usually pass a float tensor.
+        
+        # Let's keep 'label' as the binary int for backward compatibility/metrics
+        # and 'soft_label' as the distribution.
+        # We will modify the Training script to look for 'soft_label'.
+        
         out['label'] = out['binary_label'].astype(int)
-        out[['text', 'label']].to_json(filename, orient='records', lines=True)
+        
+        # Ensure soft_label is included
+        cols_to_save = ['text', 'label', 'soft_label']
+        if 'subreddit' in out.columns:
+            cols_to_save.append('subreddit')
+            
+        out[cols_to_save].to_json(filename, orient='records', lines=True)
         print(f"Saved {len(out)} rows to {filename}")
 
     save_jsonl(final_train, TRAIN_FILE)
