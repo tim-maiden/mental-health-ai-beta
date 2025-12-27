@@ -22,7 +22,7 @@ from src.config import (
 )
 
 OUTPUT_DIR = MODEL_OUTPUT_DIR
-NUM_EPOCHS = 5
+NUM_EPOCHS = 10
 
 def main():
     print(f"--- Loading Data from Local Files ---")

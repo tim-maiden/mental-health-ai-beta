@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+    def __init__(self, alpha=1, gamma=3, reduction='mean'):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -41,7 +41,7 @@ class CustomTrainer(Trainer):
         logits = outputs.get("logits")
         
         # Compute custom loss
-        loss_fct = FocalLoss(gamma=2.0)
+        loss_fct = FocalLoss(gamma=3.0)
         loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
         
         return (loss, outputs) if return_outputs else loss
@@ -77,7 +77,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         overwrite_output_dir=True,
         evaluation_strategy="epoch",  # Compatible with transformers 4.40.2 (required by optimum 1.19.2)
         save_strategy="epoch",
-        learning_rate=1e-5,
+        learning_rate=2e-5,
         warmup_ratio=0.1,
         weight_decay=0.1,  # Increased for better regularization
         lr_scheduler_type="cosine",

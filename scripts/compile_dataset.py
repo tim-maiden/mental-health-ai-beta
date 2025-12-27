@@ -14,12 +14,15 @@ from src.config import (
 )
 
 # --- DATA FILTERING THRESHOLDS ---
-# Safe Prototypes: Only include safe items with density below this threshold
+# Local Purity Strategy:
+# k=20 (was 100): Allows small, subtle clusters of unique risk to survive.
+# RISK > 0.60 (was 0.30): Strict uniqueness. Only keeps text that is MAJORITY risk in its local neighborhood.
+NEIGHBOR_K = 20 
 SAFE_DENSITY_THRESHOLD = 0.45 
-RISK_DENSITY_THRESHOLD = 0.30
+RISK_DENSITY_THRESHOLD = 0.60
 
 # Hard Negative Upper Bound: Safe items with density above this likely contain label errors or are too ambiguous
-HARD_NEGATIVE_UPPER_BOUND = 0.65 
+HARD_NEGATIVE_UPPER_BOUND = 0.85 
 
 def main():
     print("--- Starting Sequential Dataset Compilation (Decoupled Striding) ---")
@@ -90,14 +93,14 @@ def main():
     teacher_labels = teacher_df['binary_label'].values
     
     # B. Calc Density (Pass 1)
-    print("Calculating Density (Query=Full, Ref=Non-Overlapping)...")
+    print(f"Calculating Density (Query=Full, Ref=Non-Overlapping, k={NEIGHBOR_K})...")
     train_vecs = np.stack(train_df['reduced_vec'].values)
     
     density_scores_pass1 = calculate_risk_density(
         query_embeddings=train_vecs,
         reference_embeddings=teacher_vecs,
         reference_labels=teacher_labels,
-        k=100
+        k=NEIGHBOR_K
     )
     train_df['risk_density_p1'] = density_scores_pass1
     
@@ -128,7 +131,7 @@ def main():
         query_embeddings=query_safe_vecs,
         reference_embeddings=ref_pass2_vecs,
         reference_labels=ref_pass2_labels,
-        k=100
+        k=NEIGHBOR_K
     )
     train_safe_all_full['risk_density_p2'] = density_scores_pass2
     
@@ -201,7 +204,7 @@ def main():
         query_embeddings=test_vecs,
         reference_embeddings=teacher_vecs,
         reference_labels=teacher_labels,
-        k=100
+        k=NEIGHBOR_K
     )
     test_df['risk_density'] = test_density
     
