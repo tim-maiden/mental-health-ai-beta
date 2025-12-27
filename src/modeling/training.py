@@ -1,10 +1,10 @@
 import os
 import numpy as np
-import evaluate
 import warnings
 import torch
 import torch.nn.functional as F
 from torch import nn
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from transformers import (
     TrainingArguments,
     Trainer
@@ -132,10 +132,31 @@ def compute_metrics(eval_pred):
     pred_ids = np.argmax(predictions, axis=1)
     label_ids = np.argmax(labels, axis=1)
     
-    accuracy_metric = evaluate.load("accuracy")
-    acc = accuracy_metric.compute(predictions=pred_ids, references=label_ids)
+    # Standard Metrics (Weighted for class imbalance)
+    accuracy = accuracy_score(label_ids, pred_ids)
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        label_ids, 
+        pred_ids, 
+        average='weighted', 
+        zero_division=0
+    )
     
+    # 2. Top-3 Accuracy
+    # Did the correct label appear in the top 3 predictions?
+    top3_accuracy = accuracy # Fallback
+    if predictions.shape[1] >= 3:
+        # Get indices of top 3 logits
+        top3_preds = np.argsort(predictions, axis=1)[:, -3:]
+        # Check if label_ids is in top3_preds
+        # Reshape label_ids to (N, 1) for broadcasting
+        correct_top3 = np.any(top3_preds == label_ids[:, np.newaxis], axis=1)
+        top3_accuracy = np.mean(correct_top3)
+
     return {
-        "accuracy": acc["accuracy"]
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "top3_accuracy": top3_accuracy
     }
 

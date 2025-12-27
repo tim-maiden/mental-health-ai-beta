@@ -157,7 +157,8 @@ def main():
     
     # We want a mix of Prototypes and Hard Negatives for the Safe Class.
     # e.g., 70% Prototypes, 30% Hard Negatives.
-    HARD_NEGATIVE_RATIO = 0.30
+    # [UPDATED] Increased to 45% to improve distinction of borderline content (e.g. hiking/anxiety)
+    HARD_NEGATIVE_RATIO = 0.45
     n_hard = int(target_risk_size * HARD_NEGATIVE_RATIO)
     n_proto = target_risk_size - n_hard
     
