@@ -59,9 +59,20 @@ WANDB_PROJECT = "mental-health-classifier"
 TEMPERATURE = 0.3
 
 # Paths
-DATA_DIR = "data"
-OUTPUT_DIR = "outputs"
-MODELS_DIR = "models"
+if DEPLOY_ENV in ["runpod", "cloud"]:
+    # Use persistent volume in cloud environments to avoid container disk exhaustion
+    # RunPod mounts the network volume at /workspace
+    BASE_DIR = "/workspace"
+    DATA_DIR = os.path.join(BASE_DIR, "data")
+    OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+    MODELS_DIR = os.path.join(BASE_DIR, "models")
+    print(f"--- Cloud Environment Detected: Using Persistent Volume at {BASE_DIR} ---")
+else:
+    # Use local relative paths
+    DATA_DIR = "data"
+    OUTPUT_DIR = "outputs"
+    MODELS_DIR = "models"
+
 SNAPSHOTS_DIR = os.path.join(DATA_DIR, "snapshots")
 
 # Data Files

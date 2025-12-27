@@ -18,7 +18,8 @@ from src.config import (
     TRAIN_FILE, 
     TEST_FILE, 
     MODEL_OUTPUT_DIR, 
-    WANDB_PROJECT
+    WANDB_PROJECT,
+    DATA_DIR
 )
 
 OUTPUT_DIR = MODEL_OUTPUT_DIR
@@ -56,7 +57,8 @@ def main():
     })
     
     # Load subreddit mapping to determine num_labels
-    with open("data/subreddit_mapping.json", "r") as f:
+    mapping_path = os.path.join(DATA_DIR, "subreddit_mapping.json")
+    with open(mapping_path, "r") as f:
         subreddit_map = json.load(f)
     num_labels = len(subreddit_map)
     print(f"Loaded {num_labels} classes from subreddit_mapping.json")

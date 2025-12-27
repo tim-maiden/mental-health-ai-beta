@@ -10,7 +10,7 @@ from src.modeling.inference import load_model, predict_batch, is_clean_english, 
 from datasets import load_dataset
 
 # Configuration - Use environment-aware paths from config
-from src.config import MODEL_OUTPUT_DIR, QUANTIZED_MODEL_DIR
+from src.config import MODEL_OUTPUT_DIR, QUANTIZED_MODEL_DIR, DATA_DIR, OUTPUT_DIR
 
 QUANTIZED_PATH = QUANTIZED_MODEL_DIR
 STANDARD_PATH = MODEL_OUTPUT_DIR
@@ -131,11 +131,11 @@ def run_inference(args):
     model, tokenizer, device = load_model(model_path, is_quantized=is_quantized)
         
     if args.wildchat:
-        default_output = "outputs/wildchat_risk_scores.pkl"
+        default_output = os.path.join(OUTPUT_DIR, "wildchat_risk_scores.pkl")
         data_gen = load_wildchat_generator(batch_size=args.batch_size, limit=args.limit)
         dataset_name = "WildChat"
     else:
-        default_output = "outputs/lmsys_risk_scores.pkl"
+        default_output = os.path.join(OUTPUT_DIR, "lmsys_risk_scores.pkl")
         data_gen = load_lmsys_generator(batch_size=args.batch_size, limit=args.limit)
         dataset_name = "LMSYS"
 
@@ -165,7 +165,8 @@ def run_inference(args):
             
             # Load mapping
             try:
-                with open("data/subreddit_mapping.json", "r") as f:
+                mapping_path = os.path.join(DATA_DIR, "subreddit_mapping.json")
+                with open(mapping_path, "r") as f:
                     mapping = json.load(f)
                 id_to_sub = {v: k for k, v in mapping.items()}
             except:
@@ -220,7 +221,7 @@ if __name__ == "__main__":
         if args.output:
             os.makedirs(os.path.dirname(args.output), exist_ok=True)
         else:
-            os.makedirs("outputs", exist_ok=True)
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
         run_inference(args)
     else:
         print("Running Standard Test Set...")
@@ -242,7 +243,8 @@ if __name__ == "__main__":
         
         # Load mapping
         try:
-            with open("data/subreddit_mapping.json", "r") as f:
+            mapping_path = os.path.join(DATA_DIR, "subreddit_mapping.json")
+            with open(mapping_path, "r") as f:
                 mapping = json.load(f)
             id_to_sub = {v: k for k, v in mapping.items()}
         except:

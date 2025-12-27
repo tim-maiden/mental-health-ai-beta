@@ -10,7 +10,8 @@ from src.analysis.metrics import reduce_dimensions, calculate_risk_density
 from src.config import (
     RAW_DATA_FILE,
     TRAIN_FILE,
-    TEST_FILE
+    TEST_FILE,
+    DATA_DIR
 )
 
 # --- DATA FILTERING THRESHOLDS ---
@@ -259,7 +260,7 @@ def main():
     
     # Also save the subreddit mapping
     import json
-    mapping_file = "data/subreddit_mapping.json"
+    mapping_file = os.path.join(DATA_DIR, "subreddit_mapping.json")
     with open(mapping_file, "w") as f:
         json.dump(final_subreddit_to_id, f)
     print(f"Saved subreddit mapping to {mapping_file}")

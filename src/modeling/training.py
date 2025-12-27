@@ -101,6 +101,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         num_train_epochs=num_epochs,
         load_best_model_at_end=True,
         metric_for_best_model="eval_accuracy",
+        save_total_limit=1,  # CRITICAL FIX: Only keep the best checkpoint to prevent disk space exhaustion
         fp16=fp16_mode,
         bf16=bf16_mode,
         dataloader_pin_memory=pin_memory,

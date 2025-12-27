@@ -8,7 +8,7 @@ from src.config import AUDIT_RESULTS_FILE, RAW_DATA_FILE
 from src.analysis.metrics import reduce_dimensions, calculate_risk_density
 
 def main():
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(os.path.dirname(AUDIT_RESULTS_FILE), exist_ok=True)
     
     # 1. Load Data from Snapshot
     if not os.path.exists(RAW_DATA_FILE):
