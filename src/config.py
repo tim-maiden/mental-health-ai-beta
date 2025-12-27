@@ -85,4 +85,3 @@ TEST_FILE = os.path.join(DATA_DIR, "test.jsonl")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
-QUANTIZED_MODEL_DIR = os.path.join(MODELS_DIR, f"risk_classifier_quantized_{MODEL_SIZE}")

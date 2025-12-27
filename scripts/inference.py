@@ -11,9 +11,8 @@ from src.modeling.inference import load_model, predict_batch, is_clean_english, 
 from datasets import load_dataset
 
 # Configuration - Use environment-aware paths from config
-from src.config import MODEL_OUTPUT_DIR, QUANTIZED_MODEL_DIR, DATA_DIR, OUTPUT_DIR
+from src.config import MODEL_OUTPUT_DIR, DATA_DIR, OUTPUT_DIR
 
-QUANTIZED_PATH = QUANTIZED_MODEL_DIR
 STANDARD_PATH = MODEL_OUTPUT_DIR
 
 # Load dynamic threshold if available
@@ -114,12 +113,8 @@ def load_wildchat_generator(batch_size=32, limit=None):
 
 def run_inference(args):
     # Determine model path
-    is_quantized = False
     model_path = STANDARD_PATH
-    if os.path.exists(os.path.join(QUANTIZED_PATH, "model_quantized.onnx")):
-        model_path = QUANTIZED_PATH
-        is_quantized = True
-    elif not os.path.exists(STANDARD_PATH):
+    if not os.path.exists(STANDARD_PATH):
         # Fallback: try legacy path (for backward compatibility)
         legacy_path = "models/risk_classifier_deberta_v1"
         if os.path.exists(legacy_path):
@@ -127,9 +122,9 @@ def run_inference(args):
         else:
             raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
 
-    print(f"Loading Model from: {model_path} (Quantized: {is_quantized})")
+    print(f"Loading Model from: {model_path}")
     
-    model, tokenizer, device = load_model(model_path, is_quantized=is_quantized)
+    model, tokenizer, device = load_model(model_path)
         
     if args.wildchat:
         default_output = os.path.join(OUTPUT_DIR, "wildchat_risk_scores.pkl")
@@ -162,7 +157,7 @@ def run_inference(args):
         
         if keep_indices:
             valid_texts = [batch_texts[i] for i in keep_indices]
-            probs = predict_batch(model, tokenizer, valid_texts, device, is_quantized=is_quantized)
+            probs = predict_batch(model, tokenizer, valid_texts, device)
             
             # Load mapping
             try:
@@ -226,12 +221,8 @@ if __name__ == "__main__":
         run_inference(args)
     else:
         print("Running Standard Test Set...")
-        is_quantized = False
         model_path = STANDARD_PATH
-        if os.path.exists(os.path.join(QUANTIZED_PATH, "model_quantized.onnx")):
-            model_path = QUANTIZED_PATH
-            is_quantized = True
-        elif not os.path.exists(STANDARD_PATH):
+        if not os.path.exists(STANDARD_PATH):
             # Fallback: try legacy path (for backward compatibility)
             legacy_path = "models/risk_classifier_deberta_v1"
             if os.path.exists(legacy_path):
@@ -239,8 +230,8 @@ if __name__ == "__main__":
             else:
                 raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
 
-        model, tokenizer, device = load_model(model_path, is_quantized=is_quantized)
-        probs = predict_batch(model, tokenizer, INPUT_TEXTS, device, is_quantized=is_quantized)
+        model, tokenizer, device = load_model(model_path)
+        probs = predict_batch(model, tokenizer, INPUT_TEXTS, device)
         
         # Load mapping
         try:
