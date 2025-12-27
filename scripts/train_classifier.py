@@ -96,6 +96,8 @@ def main():
         train_size=len(dataset['train']),
         num_epochs=NUM_EPOCHS
     )
+    # FORCE OVERRIDE to ensure correct metric is used despite caching issues
+    training_args.metric_for_best_model = "eval_accuracy"
 
     trainer = CustomTrainer(
         model=model,
