@@ -86,18 +86,19 @@ fi
 # 3. Pipeline Steps
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
-# Step 1: Data Ingestion (Snapshot)
-log "--- Step 1: Data Ingestion ---"
-python scripts/ingest_data.py
-
-# Step 2: Compile Dataset (Teacher Training Data)
-log "--- Step 2: Dataset Compilation (Soft Labels via k-NN) ---"
-
-# Try to download compiled data first to avoid re-computation
+# Check for compiled data first to avoid expensive re-ingestion
+log "--- Checking for pre-compiled datasets ---"
 if python scripts/download_datasets.py --s3-prefix "data/latest"; then
-    log "Successfully downloaded compiled datasets from S3. Skipping compilation."
+    log "Successfully downloaded compiled datasets from S3. Skipping Data Ingestion and Compilation."
 else
-    log "Compiled data not found or download failed. Proceeding with compilation..."
+    log "Compiled data not found or download failed. Proceeding with full data pipeline..."
+
+    # Step 1: Data Ingestion (Snapshot)
+    log "--- Step 1: Data Ingestion ---"
+    python scripts/ingest_data.py
+
+    # Step 2: Compile Dataset (Teacher Training Data)
+    log "--- Step 2: Dataset Compilation (Soft Labels via k-NN) ---"
     python scripts/compile_dataset.py
 
     # [NEW] Step 2.5: Backup Compiled Data
