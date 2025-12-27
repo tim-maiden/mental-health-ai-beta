@@ -84,6 +84,8 @@ else
 fi
 
 # 3. Pipeline Steps
+export HF_HUB_ENABLE_HF_TRANSFER=0
+
 # Step 1: Data Ingestion (Snapshot)
 log "--- Step 1: Data Ingestion ---"
 python scripts/ingest_data.py
