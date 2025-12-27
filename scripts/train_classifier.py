@@ -107,7 +107,7 @@ def main():
         compute_metrics=compute_metrics,
     )
 
-    print("--- Starting Training (Focal Loss) ---")
+    print("--- Starting Training (Multilabel/Soft-Label) ---")
     os.makedirs(os.path.dirname(OUTPUT_DIR), exist_ok=True)
     trainer.train()
 
@@ -117,8 +117,10 @@ def main():
     
     print("\n--- Final Evaluation ---")
     print("Evaluating on Test Set...")
-    metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
-    print(metrics)
+    # NOTE: We skip standard evaluation during training script to avoid overhead.
+    # Evaluation is handled in detail by scripts/inference.py and WandB logging.
+    # metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
+    # print(metrics)
     
     # --- Dynamic Thresholding Skipped for Multilabel ---
     # For Soft-Label distillation, we don't optimize a single binary threshold immediately.
