@@ -361,7 +361,16 @@ def load_reddit_control_dataset():
             print(f"Warning: Could not load split for r/{subreddit}: {e}")
             continue
 
+        # [NEW] Randomly skip into the file to get different eras/topics
+        # Most of these subreddits have >100k rows. Skipping up to 50k is safe.
+        skip_amount = random.randint(0, 50000)
+        print(f"  > Skipping first {skip_amount} rows for diversity...")
+
         for i, row in enumerate(dataset_stream):
+            # [NEW] Skip logic
+            if i < skip_amount:
+                continue
+
             # Check if we have enough for this sub
             if len(collected_data[subreddit]) >= target_count:
                 break
