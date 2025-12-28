@@ -151,7 +151,7 @@ def train_probe(df):
     
     # SGD is much lighter on memory
     # Increased max_iter for better convergence
-    clf = MultiOutputClassifier(SGDClassifier(loss='log_loss', max_iter=2000, random_state=42, n_jobs=-1))
+    clf = MultiOutputClassifier(SGDClassifier(loss='log_loss', max_iter=2000, random_state=42, n_jobs=-1, class_weight='balanced'))
     clf.fit(X_train, y_train)
     
     # Evaluate
@@ -175,15 +175,8 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
     print(f"Processing data from {SAFETY_TABLE} in batches...")
     
     # Check total count first (approximate)
-    count_query = supabase.table(SAFETY_TABLE).select("id", count="exact").head()
+    count_query = supabase.table(SAFETY_TABLE).select("id", count="exact").limit(1)
     try:
-        # For supabase-py < 2.0 (or async), count might be accessed differently
-        # But 'head()' is not a method on SelectBuilder in newer versions
-        # We just want to execute with count
-        res = count_query.execute() 
-        # Actually .head() is likely what caused the error if it doesn't exist.
-        # Let's remove .head() and just limit 1
-        count_query = supabase.table(SAFETY_TABLE).select("id", count="exact").limit(1)
         res = count_query.execute()
         total_rows = res.count
         print(f"Total rows to process: {total_rows}")
@@ -194,6 +187,22 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
     offset = 0
     processed_count = 0
     
+    # --- Prediction Configuration ---
+    # Custom threshold to avoid "zero-label" issue with MultiOutputClassifier.predict()
+    THRESHOLD = 0.25 
+    
+    from concurrent.futures import ThreadPoolExecutor
+
+    def push_update(item):
+        try:
+            supabase.table(SAFETY_TABLE).update({
+                "predicted_emotions": item["predicted_emotions"]
+            }).eq("id", item["id"]).execute()
+            return True
+        except Exception as e:
+            # print(f"    Failed update ID {item['id']}: {e}") # Reduce spam
+            return False
+
     while True:
         try:
             # Fetch a batch of embeddings
@@ -212,10 +221,22 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
             if not batch_df.empty:
                 # Predict
                 X_batch = np.stack(batch_df['embedding_vec'].values)
-                y_pred = clf.predict(X_batch)
-                y_labels = mlb.inverse_transform(y_pred)
                 
-                # Update
+                # Use predict_proba + Custom Threshold instead of .predict()
+                # predict_proba returns a list of (n_samples, 2) arrays, one per class.
+                probas_list = clf.predict_proba(X_batch)
+                
+                # Stack to get (n_samples, n_classes) matrix of probability for class=1
+                # Each element in probas_list is (n_samples, 2), we want column 1.
+                probas = np.array([class_probs[:, 1] for class_probs in probas_list]).T
+                
+                # Apply threshold
+                y_pred_bool = probas > THRESHOLD
+                
+                # Inverse transform to get labels
+                y_labels = mlb.inverse_transform(y_pred_bool)
+                
+                # Update List
                 updates = []
                 for idx, row in batch_df.iterrows():
                     predicted_emotions = list(y_labels[idx])
@@ -224,17 +245,10 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
                         "predicted_emotions": predicted_emotions
                     })
                 
-                # Upload updates 1-by-1 (Supabase limitation for unrelated rows) or try batching if possible
-                # Parallelize the updates?
-                # For safety, let's just do sequential for now but suppress progress bar spam
-                print(f"  > Uploading predictions for {len(updates)} rows...")
-                for update in updates:
-                    try:
-                        supabase.table(SAFETY_TABLE).update({
-                            "predicted_emotions": update["predicted_emotions"]
-                        }).eq("id", update["id"]).execute()
-                    except Exception as e:
-                        print(f"    Failed update ID {update['id']}: {e}")
+                # Parallelize the updates
+                print(f"  > Uploading predictions for {len(updates)} rows (Parallelized)...")
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    list(executor.map(push_update, updates))
             
             offset += len(data)
             processed_count += len(data)
