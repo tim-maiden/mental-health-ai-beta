@@ -104,29 +104,36 @@ def fetch_goemotions_data(limit=None, use_cache=True):
         
     df['emotions_list'] = df['emotions'].apply(parse_emotions)
     
-    # --- SENTIMENT MAPPING ---
-    print("Mapping 28 Emotions to Sentiment Categories...")
-    SENTIMENT_MAP = {
-        "positive": ["amusement", "excitement", "joy", "love", "desire", "optimism", "caring", "pride", "admiration", "gratitude", "relief", "approval"],
-        "negative": ["fear", "nervousness", "remorse", "embarrassment", "disappointment", "sadness", "grief", "disgust", "anger", "annoyance", "disapproval"],
-        "ambiguous": ["realization", "surprise", "curiosity", "confusion"],
-        "neutral": ["neutral"]
-    }
+    # --- SUPER-CLASS TRAINING (Positive / Negative / Ambiguous) ---
+    print("Mapping 28 Emotions to 3 Super-Classes (Positive, Negative, Ambiguous)...")
     
-    # Invert the map for O(1) lookup
-    EMOTION_TO_SENTIMENT = {}
-    for sentiment, emotions in SENTIMENT_MAP.items():
-        for emo in emotions:
-            EMOTION_TO_SENTIMENT[emo] = sentiment
-            
-    def map_emotions(emotions_list):
-        sentiments = set()
-        for emo in emotions_list:
-            if emo in EMOTION_TO_SENTIMENT:
-                sentiments.add(EMOTION_TO_SENTIMENT[emo])
-        return list(sentiments)
+    # Define the Buckets
+    POS_BUCKET = {"amusement", "excitement", "joy", "love", "desire", "optimism", "caring", "pride", "admiration", "gratitude", "relief", "approval"}
+    NEG_BUCKET = {"fear", "nervousness", "remorse", "embarrassment", "disappointment", "sadness", "grief", "disgust", "anger", "annoyance", "disapproval"}
+    # Ambiguous includes 'neutral' and cognitive states
+    AMB_BUCKET = {"realization", "surprise", "curiosity", "confusion", "neutral"}
+
+    def map_to_superclass(emotions_list):
+        # We want a dense target: [is_positive, is_negative, is_ambiguous]
+        # But MultiLabelBinarizer handles strings well. Let's return the list of applicable superclasses.
+        super_classes = set()
         
-    df['emotions_list'] = df['emotions_list'].apply(map_emotions)
+        # Check for intersection
+        emo_set = set(emotions_list)
+        
+        if not emo_set.isdisjoint(POS_BUCKET):
+            super_classes.add("positive")
+        
+        if not emo_set.isdisjoint(NEG_BUCKET):
+            super_classes.add("negative")
+            
+        # If it has ambiguous labels OR if it has NO labels (default to ambiguous/neutral)
+        if not emo_set.isdisjoint(AMB_BUCKET) or len(super_classes) == 0:
+            super_classes.add("ambiguous")
+            
+        return list(super_classes)
+        
+    df['emotions_list'] = df['emotions_list'].apply(map_to_superclass)
     
     # Drop invalid rows
     df = df.dropna(subset=['embedding_vec'])
