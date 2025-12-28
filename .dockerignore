@@ -16,6 +16,7 @@ create_pod.sh
 data/
 outputs/
 models/
+logs/
 
 # Ignore secrets (NEVER bake secrets into the image)
 secrets.json

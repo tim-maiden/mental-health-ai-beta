@@ -26,6 +26,7 @@ MANIFEST
 data/
 outputs/
 models/
+logs/
 
 # Virtual Environment
 venv/

@@ -180,7 +180,7 @@ def main():
         # [UPDATED] The probe now returns simplified sentiments: 'negative', 'positive', 'neutral', 'ambiguous'.
         # We target 'negative' sentiment for hard negatives.
         
-        target_emotions = {'negative'}
+        target_emotions = {'positive'}
         
         def has_target_emotion(emotions_list):
             if not isinstance(emotions_list, list): return False
