@@ -104,6 +104,30 @@ def fetch_goemotions_data(limit=None, use_cache=True):
         
     df['emotions_list'] = df['emotions'].apply(parse_emotions)
     
+    # --- SENTIMENT MAPPING ---
+    print("Mapping 28 Emotions to Sentiment Categories...")
+    SENTIMENT_MAP = {
+        "positive": ["amusement", "excitement", "joy", "love", "desire", "optimism", "caring", "pride", "admiration", "gratitude", "relief", "approval"],
+        "negative": ["fear", "nervousness", "remorse", "embarrassment", "disappointment", "sadness", "grief", "disgust", "anger", "annoyance", "disapproval"],
+        "ambiguous": ["realization", "surprise", "curiosity", "confusion"],
+        "neutral": ["neutral"]
+    }
+    
+    # Invert the map for O(1) lookup
+    EMOTION_TO_SENTIMENT = {}
+    for sentiment, emotions in SENTIMENT_MAP.items():
+        for emo in emotions:
+            EMOTION_TO_SENTIMENT[emo] = sentiment
+            
+    def map_emotions(emotions_list):
+        sentiments = set()
+        for emo in emotions_list:
+            if emo in EMOTION_TO_SENTIMENT:
+                sentiments.add(EMOTION_TO_SENTIMENT[emo])
+        return list(sentiments)
+        
+    df['emotions_list'] = df['emotions_list'].apply(map_emotions)
+    
     # Drop invalid rows
     df = df.dropna(subset=['embedding_vec'])
     
@@ -189,7 +213,8 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
     
     # --- Prediction Configuration ---
     # Custom threshold to avoid "zero-label" issue with MultiOutputClassifier.predict()
-    THRESHOLD = 0.25 
+    # For simplified sentiment (3-4 classes), we can use a higher threshold
+    THRESHOLD = 0.5 
     
     from concurrent.futures import ThreadPoolExecutor
 
