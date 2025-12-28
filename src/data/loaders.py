@@ -147,6 +147,84 @@ def load_wildchat_dataset_from_supabase(limit=50000):
     print(f"\nLoaded {len(df)} rows from Supabase.")
     return df
 
+def load_goemotions_dataset():
+    """Loads and processes the GoEmotions dataset from Kaggle."""
+    print("Loading GoEmotions dataset from Kaggle...")
+    path = kagglehub.dataset_download("debarshichanda/goemotions")
+    
+    # The dataset might be split into multiple CSVs (train, test, val or just data)
+    csv_files = glob.glob(os.path.join(path, "*.csv"))
+    if not csv_files:
+        # Sometimes it's in a subdirectory
+        csv_files = glob.glob(os.path.join(path, "**", "*.csv"), recursive=True)
+    
+    # Filter out known non-data CSVs
+    csv_files = [f for f in csv_files if os.path.basename(f) not in ['emotion_words.csv', 'ekman_labels.csv']]
+        
+    print(f"Found {len(csv_files)} data CSV files: {[os.path.basename(f) for f in csv_files]}")
+    
+    df_list = [pd.read_csv(file) for file in csv_files]
+    df = pd.concat(df_list, ignore_index=True)
+    
+    print(f"Total raw rows: {len(df)}")
+
+    # Standard GoEmotions columns
+    emotion_cols = [
+        "admiration", "amusement", "anger", "annoyance", "approval", "caring",
+        "confusion", "curiosity", "desire", "disappointment", "disapproval",
+        "disgust", "embarrassment", "excitement", "fear", "gratitude", "grief",
+        "joy", "love", "nervousness", "optimism", "pride", "realization",
+        "relief", "remorse", "sadness", "surprise", "neutral"
+    ]
+    
+    # Filter for valid emotion columns that exist in this version of the dataset
+    existing_emotion_cols = [col for col in emotion_cols if col in df.columns]
+    
+    # Optional: Filter out unclear examples if the column exists
+    if 'example_very_unclear' in df.columns:
+        initial_len = len(df)
+        df = df[df['example_very_unclear'] == False]
+        print(f"Filtered out {initial_len - len(df)} unclear examples.")
+
+    processed_rows = []
+    
+    print("Processing and chunking rows...")
+    for idx, row in df.iterrows():
+        text = str(row['text'])
+        
+        # Identify active emotions for this row
+        active_emotions = [emo for emo in existing_emotion_cols if row[emo] == 1]
+        
+        # Chunk the text using the standard sliding window
+        chunks = chunk_text_sliding_window(text)
+        chunk_order_id = 1
+        
+        # Use existing ID or generate one
+        post_id = row.get('id', f"goemotions_{idx}")
+        
+        for chunk in chunks:
+            if not chunk.strip(): continue
+            
+            processed_rows.append({
+                'post_id': post_id,
+                'chunk_id': chunk_order_id,
+                'input': chunk.strip(),
+                'subreddit': row.get('subreddit', 'unknown'),
+                'emotions': active_emotions, # Store as list
+            })
+            chunk_order_id += 1
+            
+    df_processed = pd.DataFrame(processed_rows)
+    
+    # Calculate token counts
+    print(f"Calculating token counts for {len(df_processed)} chunks...")
+    df_processed['input_tokens'] = df_processed['input'].apply(
+        lambda text: len(encoding.encode(text, allowed_special={"<|endofprompt|>", "<|endoftext|>"})) if isinstance(text, str) else 0
+    )
+    
+    print(f"Finished processing GoEmotions dataset. Total chunks: {len(df_processed)}")
+    return df_processed
+
 def load_reddit_mental_health_dataset():
     """Loads and processes the Reddit mental health dataset with cleaning."""
     print("Loading Reddit Mental Health dataset (Risk Data)...")

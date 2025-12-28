@@ -161,7 +161,7 @@ def main():
     n_hard = int(target_risk_size * HARD_NEGATIVE_RATIO)
     n_proto = target_risk_size - n_hard
     
-    # Sample Hard Negatives
+    # 1. Sample Hard Negatives (Based on Density)
     if len(safe_hard_negatives) >= n_hard:
         safe_hard_sampled = safe_hard_negatives.sample(n=n_hard, random_state=42)
     else:
@@ -169,12 +169,51 @@ def main():
         safe_hard_sampled = safe_hard_negatives
         n_proto = target_risk_size - len(safe_hard_sampled) # Fill rest with prototypes
         
-    # Sample Prototypes
-    if len(safe_prototypes) >= n_proto:
-        safe_proto_sampled = safe_prototypes.sample(n=n_proto, random_state=42)
+    # 2. Sample Prototypes (Emotion-Driven Sampling if available)
+    if 'predicted_emotions' in safe_prototypes.columns:
+        print("Using Emotion-Driven Sampling for Safe Prototypes...")
+        # Explode the list of emotions to sample efficiently
+        # Since 'predicted_emotions' is a list, we might want to prioritize "Sadness-like" or "Anxiety-like"
+        # but safe content (e.g. "grief" in safe contexts vs risk).
+        # Actually, if we want to teach the model distinctions, we want Safe content that MIGHT look risky emotionally.
+        # So we upsample "Sadness", "Fear", "Anger" in the Safe class.
+        
+        target_emotions = {'sadness', 'grief', 'fear', 'anger', 'nervousness', 'annoyance', 'disappointment'}
+        
+        def has_target_emotion(emotions_list):
+            if not isinstance(emotions_list, list): return False
+            return any(e in target_emotions for e in emotions_list)
+            
+        safe_emotional = safe_prototypes[safe_prototypes['predicted_emotions'].apply(has_target_emotion)]
+        safe_neutral = safe_prototypes[~safe_prototypes.index.isin(safe_emotional.index)]
+        
+        print(f"Found {len(safe_emotional)} emotional safe prototypes vs {len(safe_neutral)} neutral/other.")
+        
+        # We want to oversample the emotional ones to force the model to learn context, not just emotion words.
+        # Let's target 50% emotional if possible.
+        n_emotional_target = n_proto // 2
+        
+        if len(safe_emotional) >= n_emotional_target:
+            sampled_emotional = safe_emotional.sample(n=n_emotional_target, random_state=42)
+        else:
+            sampled_emotional = safe_emotional # Take all
+            
+        n_neutral_target = n_proto - len(sampled_emotional)
+        if len(safe_neutral) >= n_neutral_target:
+            sampled_neutral = safe_neutral.sample(n=n_neutral_target, random_state=42)
+        else:
+            sampled_neutral = safe_neutral
+            
+        safe_proto_sampled = pd.concat([sampled_emotional, sampled_neutral])
+        print(f"Sampled {len(sampled_emotional)} emotional + {len(sampled_neutral)} neutral safe prototypes.")
+        
     else:
-        print(f"Warning: Not enough safe prototypes ({len(safe_prototypes)}) to fill budget ({n_proto}).")
-        safe_proto_sampled = safe_prototypes
+        print("Warning: 'predicted_emotions' column missing. Fallback to random sampling.")
+        if len(safe_prototypes) >= n_proto:
+            safe_proto_sampled = safe_prototypes.sample(n=n_proto, random_state=42)
+        else:
+            print(f"Warning: Not enough safe prototypes ({len(safe_prototypes)}) to fill budget ({n_proto}).")
+            safe_proto_sampled = safe_prototypes
 
     safe_combined = pd.concat([safe_proto_sampled, safe_hard_sampled])
     

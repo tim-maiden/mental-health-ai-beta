@@ -9,7 +9,8 @@ from src.data.loaders import (
     load_lmsys_chat_dataset,
     load_wildchat_dataset,
     load_reddit_mental_health_dataset,
-    load_reddit_control_dataset
+    load_reddit_control_dataset,
+    load_goemotions_dataset
 )
 from src.data.storage import embed_and_upload_dataframe_in_batches
 
@@ -20,16 +21,18 @@ def main():
     parser.add_argument("--wildchat", action="store_true", help="Process and upload WildChat dataset")
     parser.add_argument("--mental-health", action="store_true", help="Process and upload Reddit Mental Health dataset")
     parser.add_argument("--controls", action="store_true", help="Process and upload Reddit Safe Control dataset")
+    parser.add_argument("--goemotions", action="store_true", help="Process and upload GoEmotions dataset")
     
     args = parser.parse_args()
 
     # If no flags are provided, print help
-    if not any([args.lmsys, args.wildchat, args.mental_health, args.controls]):
+    if not any([args.lmsys, args.wildchat, args.mental_health, args.controls, args.goemotions]):
         print("No dataset selected. Please use at least one flag:")
         print("  --lmsys          : Run LMSYS Chat dataset")
         print("  --wildchat       : Run WildChat dataset")
         print("  --mental-health  : Run Reddit Mental Health dataset")
         print("  --controls       : Run Reddit Safe Control dataset")
+        print("  --goemotions     : Run GoEmotions dataset")
         return
 
     # 1. Process lmsys chat data
@@ -77,6 +80,17 @@ def main():
             int_columns=['input_tokens', 'chunk_id']
         )
         print("=== FINISHED REDDIT CONTROL DATASET PROCESSING ===\n")
+
+    # 4. Process GoEmotions data
+    if args.goemotions:
+        print("\n=== STARTING GOEMOTIONS DATASET PROCESSING ===")
+        df_goemotions = load_goemotions_dataset()
+        embed_and_upload_dataframe_in_batches(
+            df_goemotions,
+            'goemotions_embeddings',
+            int_columns=['chunk_id', 'input_tokens']
+        )
+        print("=== FINISHED GOEMOTIONS DATASET PROCESSING ===\n")
 
     print("Script finished.")
 
