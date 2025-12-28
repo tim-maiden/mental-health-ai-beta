@@ -9,8 +9,11 @@ __pycache__/
 *.pyc
 
 # Ignore local deployment files
-deploy_image.sh
-create_pod.sh
+deploy/
+
+# Ignore local progress tracking
+progress.json
+*.log
 
 # Ignore local data and outputs (we should fetch/generate these in the cloud)
 data/
@@ -23,5 +26,12 @@ secrets.json
 
 # Ignore system files
 .DS_Store
+
+# Ignore Editor / IDE files
+.idea/
+.vscode/
+.cursor/
+*.swp
+
 
 guidance.md

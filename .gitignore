@@ -46,6 +46,14 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
+# Editors / IDEs
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+
 # Project specific
 progress.json
 *.log
