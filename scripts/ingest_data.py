@@ -20,11 +20,13 @@ def main():
     
     # 1. Fetch Data
     print(f"Fetching from {REDDIT_TABLE}...")
-    df_risk = fetch_data(REDDIT_TABLE)
+    # Risk table likely doesn't have predicted_emotions
+    df_risk = fetch_data(REDDIT_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id"])
     df_risk['dataset_type'] = REDDIT_TABLE
     
     print(f"Fetching from {CONTROL_TABLE}...")
-    df_control = fetch_data(CONTROL_TABLE)
+    # Control table has predicted_emotions for hard negative sampling
+    df_control = fetch_data(CONTROL_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id", "predicted_emotions"])
     df_control['dataset_type'] = CONTROL_TABLE
     
     # 2. Combine

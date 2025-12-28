@@ -86,16 +86,20 @@ def process_embedding_str(x):
     except (ValueError, SyntaxError):
         return None
 
-def fetch_data(table_name, fetch_size=1000):
+def fetch_data(table_name, fetch_size=1000, columns=None):
     """Fetches all data from a Supabase table."""
     print(f"Fetching data from {table_name}...")
+    if columns is None:
+        columns = ["subreddit", "embedding", "input", "post_id", "chunk_id"]
+    
+    select_str = ", ".join(columns)
     all_data = []
     page = 0
     
     while True:
         offset = page * fetch_size
-        # Select more columns to allow for better filtering downstream
-        response = supabase.table(table_name).select("subreddit, embedding, input, post_id, chunk_id, predicted_emotions").limit(fetch_size).offset(offset).execute()
+        # Select specified columns
+        response = supabase.table(table_name).select(select_str).limit(fetch_size).offset(offset).execute()
         data = response.data
         if not data:
             break
