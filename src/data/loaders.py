@@ -343,8 +343,6 @@ def load_reddit_control_dataset():
         # And cap at a reasonable maximum to avoid one subreddit dominating
         target = max(5000, min(target, 50000)) 
         TARGET_SUBREDDITS[sub] = target
-
-    MIN_LENGTH = 50
     
     print(f"Targeting {sum(TARGET_SUBREDDITS.values())} rows across {len(TARGET_SUBREDDITS)} subreddits...")
     
