@@ -258,13 +258,14 @@ def main():
     parser.add_argument("--train", action="store_true", help="Train the probe model")
     parser.add_argument("--predict", action="store_true", help="Predict on safety data")
     parser.add_argument("--limit", type=int, default=None, help="Limit rows for testing")
+    parser.add_argument("--no-cache", action="store_true", help="Force re-fetch from Supabase")
     args = parser.parse_args()
     
     # TRAIN PHASE
     clf, mlb = None, None
     
     if args.train:
-        df_go = fetch_goemotions_data(limit=args.limit)
+        df_go = fetch_goemotions_data(limit=args.limit, use_cache=not args.no_cache)
         clf, mlb = train_probe(df_go)
         # df_go is deleted inside train_probe now
         import gc
