@@ -258,6 +258,18 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
                 # Apply threshold
                 y_pred_bool = probas > THRESHOLD
                 
+                # --- SAFETY NET: Force at least one label if all below threshold ---
+                # Check for rows where ALL predictions are False (sum is 0)
+                empty_rows_mask = y_pred_bool.sum(axis=1) == 0
+                
+                if empty_rows_mask.any():
+                    # Get indices of the max probability for the empty rows
+                    max_indices = probas[empty_rows_mask].argmax(axis=1)
+                    
+                    # Set the corresponding class to True for those rows
+                    row_indices = np.where(empty_rows_mask)[0]
+                    y_pred_bool[row_indices, max_indices] = True
+                
                 # Inverse transform to get labels
                 y_labels = mlb.inverse_transform(y_pred_bool)
                 
