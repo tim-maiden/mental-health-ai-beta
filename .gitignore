@@ -22,7 +22,10 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# Ignore local data and outputs (we should fetch/generate these in the cloud)
 data/
+outputs/
+models/
 
 # Virtual Environment
 venv/
