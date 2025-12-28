@@ -65,24 +65,94 @@ def main():
         print("\n=== STARTING MENTAL HEALTH DATASET PROCESSING ===")
         # Use the generator to process in batches
         from src.data.loaders import yield_reddit_mental_health_dataset
+        from src.config import PROGRESS_FILE
+        import json
+        
+        # Load progress manually to handle generator skipping
+        processed_rows = 0
+        if os.path.exists(PROGRESS_FILE):
+            with open(PROGRESS_FILE, 'r') as f:
+                progress = json.load(f)
+                processed_rows = progress.get('reddit_mental_health_embeddings', 0)
+        
+        print(f"Resuming from global row count: {processed_rows}")
         
         batch_counter = 0
         total_chunks = 0
+        current_offset = 0
         
         # Adjust batch size for memory safety (e.g. 5000 chunks)
         generator = yield_reddit_mental_health_dataset(batch_size=5000)
         
         for df_batch in generator:
-            batch_counter += 1
-            print(f"\n--- Processing Global Batch {batch_counter} ({len(df_batch)} chunks) ---")
+            batch_len = len(df_batch)
             
-            embed_and_upload_dataframe_in_batches(
-                df_batch, 
-                'reddit_mental_health_embeddings',
-                # Columns to convert to int if present
-                int_columns=['chunk_id', 'score', 'input_tokens'] 
-                # Note: post_id is now text based on our loader logic (file_idx), so removed from int_columns
-            )
+            # Check if this entire batch has already been processed
+            if current_offset + batch_len <= processed_rows:
+                print(f"Skipping batch (Global range {current_offset}-{current_offset+batch_len} already processed)")
+                current_offset += batch_len
+                continue
+                
+            # Partial overlap (shouldn't happen often with consistent batch sizes, but handle it)
+            if current_offset < processed_rows:
+                skip_in_batch = processed_rows - current_offset
+                print(f"Skipping first {skip_in_batch} rows of current batch...")
+                df_batch = df_batch.iloc[skip_in_batch:]
+                current_offset += skip_in_batch # Now current_offset == processed_rows
+            
+            batch_counter += 1
+            print(f"\n--- Processing Global Batch {batch_counter} (Global Offset: {current_offset}) ---")
+            
+            # We temporarily trick the uploader by overriding the progress file check 
+            # or we modify the uploader. 
+            # EASIER: We just call embed_and_upload but ensure we DON'T skip inside it.
+            # However, embed_and_upload loads progress internally and skips.
+            # TRICK: We can pass a unique table name alias or handle the upload manually here.
+            # BETTER: Let's use the underlying functions directly to avoid the conflict.
+            
+            from src.data.storage import embed_dataframe, save_progress, load_progress, supabase
+            import numpy as np
+            import pandas as pd
+            
+            # 1. Embed
+            df_batch = embed_dataframe(df_batch, desc=f"Embedding batch {batch_counter}")
+            
+            # 2. Upload
+            # Prepare data
+            df_batch = df_batch.replace({np.nan: None, pd.NA: None})
+            
+            # Ensure int columns
+            int_columns = ['chunk_id', 'score', 'input_tokens']
+            for col in int_columns:
+                if col in df_batch.columns:
+                    df_batch.loc[:, col] = pd.to_numeric(df_batch[col], errors='coerce').astype('Int64')
+            
+            records = df_batch.to_dict(orient='records')
+            records = [r for r in records if r.get('embedding') is not None]
+            
+            if records:
+                try:
+                    # Upload in smaller chunks to Supabase to avoid timeout
+                    sub_batch_size = 1000
+                    for i in range(0, len(records), sub_batch_size):
+                        sub_batch = records[i:i+sub_batch_size]
+                        supabase.table('reddit_mental_health_embeddings').insert(sub_batch).execute()
+                        print(f"Uploaded {len(sub_batch)} rows...", end="\r")
+                    print("\nBatch upload complete.")
+                    
+                    # Update Progress
+                    current_offset += len(df_batch) # df_batch here is the *remaining* part we processed
+                    
+                    # Reload progress to be safe (though we are the only writer)
+                    p = load_progress()
+                    p['reddit_mental_health_embeddings'] = current_offset
+                    save_progress(p)
+                    
+                except Exception as e:
+                    print(f"Error uploading batch: {e}")
+                    # Don't crash entire script, try to save what we can or just break
+                    break
+            
             total_chunks += len(df_batch)
             
         print(f"=== FINISHED MENTAL HEALTH DATASET PROCESSING (Total Chunks: {total_chunks}) ===\n")
