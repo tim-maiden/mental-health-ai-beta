@@ -361,33 +361,29 @@ def load_reddit_control_dataset():
             print(f"Warning: Could not load split for r/{subreddit}: {e}")
             continue
 
-        # [UPDATED] Bias for Most Recent Data
-        # We know the approximate size of the subreddit from SUBREDDIT_SIZES.
-        # We want the LAST N rows, not the first N.
-        # Logic: Skip to (Total - Target - Buffer).
+        # [UPDATED] Date Filtering (Jan 1 2019 - Sep 1 2022)
+        # We replace the random/tail skip with precise temporal filtering to match Risk data window.
+        START_UTC = 1546300800
+        END_UTC = 1661990400
         
-        approx_total = SUBREDDIT_SIZES.get(subreddit, 100000) # Fallback 100k
-        
-        # Calculate deep skip
-        # We leave a 10% buffer or 5000 rows to avoid hitting EOF if our count is slightly off
-        buffer = max(5000, int(approx_total * 0.05))
-        
-        if approx_total > (target_count + buffer):
-            skip_amount = approx_total - target_count - buffer
-            print(f"  > Deep Skip: Skipping first {skip_amount} rows to target recent data...")
-        else:
-            # Dataset too small for deep skip, read from start
-            skip_amount = 0
-            print(f"  > Dataset small ({approx_total}), reading from start...")
+        print(f"  > Scanning for posts between 2019-01-01 and 2022-09-01...")
 
         for i, row in enumerate(dataset_stream):
-            # [NEW] Skip logic
-            if i < skip_amount:
-                continue
-
             # Check if we have enough for this sub
             if len(collected_data[subreddit]) >= target_count:
                 break
+                
+            # Date Filter
+            try:
+                # Screenshot showed string "133...", ensure safe cast
+                created_utc = float(row.get('created_utc', 0))
+            except (ValueError, TypeError):
+                continue
+                
+            if created_utc < START_UTC:
+                continue # Too old
+            if created_utc > END_UTC:
+                continue # Too new
 
             # Content Filter: Combine Title + Selftext (Body)
             title = row.get('title', "")
