@@ -150,73 +150,15 @@ def main():
     print(f"Safe Prototypes (Density < {SAFE_DENSITY_THRESHOLD}): {len(safe_prototypes)}")
     print(f"Safe Hard Negatives ({SAFE_DENSITY_THRESHOLD} <= Density < {HARD_NEGATIVE_UPPER_BOUND}): {len(safe_hard_negatives)}")
     
-    # F. Balance & Merge
-    target_risk_size = len(train_risk_clean_full)
-    print(f"\n--- Balancing Dataset (Target Class Size: {target_risk_size}) ---")
+    # F. No Balancing (Use ALL Safe Data to fix False Positives)
+    print(f"\n--- Compiling Imbalanced Dataset (Using ALL Safe Data) ---")
     
-    # We want a mix of Prototypes and Hard Negatives for the Safe Class.
-    # e.g., 70% Prototypes, 30% Hard Negatives.
-    # [UPDATED] Decreased to 30% to give the model more "easy wins" and boost confidence.
-    HARD_NEGATIVE_RATIO = 0.30
-    n_hard = int(target_risk_size * HARD_NEGATIVE_RATIO)
-    n_proto = target_risk_size - n_hard
+    # 1. Use ALL Hard Negatives (Crucial for boundary definitions)
+    safe_hard_sampled = safe_hard_negatives
     
-    # 1. Sample Hard Negatives (Based on Density)
-    if len(safe_hard_negatives) >= n_hard:
-        safe_hard_sampled = safe_hard_negatives.sample(n=n_hard, random_state=42)
-    else:
-        print(f"Note: Using all available hard negatives ({len(safe_hard_negatives)})")
-        safe_hard_sampled = safe_hard_negatives
-        n_proto = target_risk_size - len(safe_hard_sampled) # Fill rest with prototypes
-        
-    # 2. Sample Prototypes (Emotion-Driven Sampling if available)
-    if 'predicted_emotions' in safe_prototypes.columns:
-        print("Using Emotion-Driven Sampling for Safe Prototypes...")
-        # Explode the list of emotions to sample efficiently
-        # Since 'predicted_emotions' is a list, we might want to prioritize "Sadness-like" or "Anxiety-like"
-        # but safe content (e.g. "grief" in safe contexts vs risk).
-        # Actually, if we want to teach the model distinctions, we want Safe content that MIGHT look risky emotionally.
-        # So we upsample "Sadness", "Fear", "Anger" in the Safe class.
-        # [UPDATED] The probe now returns simplified sentiments: 'negative', 'positive', 'neutral', 'ambiguous'.
-        # We target 'negative' sentiment for hard negatives.
-        
-        target_emotions = {'positive'}
-        
-        def has_target_emotion(emotions_list):
-            if not isinstance(emotions_list, list): return False
-            return any(e in target_emotions for e in emotions_list)
-            
-        safe_emotional = safe_prototypes[safe_prototypes['predicted_emotions'].apply(has_target_emotion)]
-        safe_neutral = safe_prototypes[~safe_prototypes.index.isin(safe_emotional.index)]
-        
-        print(f"Found {len(safe_emotional)} emotional safe prototypes vs {len(safe_neutral)} neutral/other.")
-        
-        # We want to oversample the emotional ones to force the model to learn context, not just emotion words.
-        # Let's target 50% emotional if possible.
-        n_emotional_target = n_proto // 2
-        
-        if len(safe_emotional) >= n_emotional_target:
-            sampled_emotional = safe_emotional.sample(n=n_emotional_target, random_state=42)
-        else:
-            sampled_emotional = safe_emotional # Take all
-            
-        n_neutral_target = n_proto - len(sampled_emotional)
-        if len(safe_neutral) >= n_neutral_target:
-            sampled_neutral = safe_neutral.sample(n=n_neutral_target, random_state=42)
-        else:
-            sampled_neutral = safe_neutral
-            
-        safe_proto_sampled = pd.concat([sampled_emotional, sampled_neutral])
-        print(f"Sampled {len(sampled_emotional)} emotional + {len(sampled_neutral)} neutral safe prototypes.")
-        
-    else:
-        print("Warning: 'predicted_emotions' column missing. Fallback to random sampling.")
-        if len(safe_prototypes) >= n_proto:
-            safe_proto_sampled = safe_prototypes.sample(n=n_proto, random_state=42)
-        else:
-            print(f"Warning: Not enough safe prototypes ({len(safe_prototypes)}) to fill budget ({n_proto}).")
-            safe_proto_sampled = safe_prototypes
-
+    # 2. Use ALL Safe Prototypes (Crucial for establishing "Normalcy")
+    safe_proto_sampled = safe_prototypes
+    
     safe_combined = pd.concat([safe_proto_sampled, safe_hard_sampled])
     
     # Combine Final
@@ -228,10 +170,10 @@ def main():
     # Shuffle
     final_train = final_train.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    print(f"Final Training Distribution:")
+    print(f"Final Training Distribution (IMBALANCED):")
     print(f" - Risk Prototypes: {len(train_risk_clean_full)}")
-    print(f" - Safe Combined: {len(safe_combined)} ({len(safe_proto_sampled)} Proto + {len(safe_hard_sampled)} Hard)")
-    print(f" - Total: {len(final_train)}")
+    print(f" - Safe Combined: {len(safe_combined)}")
+    print(f" - Ratio: 1 Risk : {len(safe_combined)/len(train_risk_clean_full):.1f} Safe")
     
     # ==========================================================
     # PHASE 1.5: GENERATE SOFT LABELS (EMBEDDING DISTILLATION)
