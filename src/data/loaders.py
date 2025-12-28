@@ -332,8 +332,8 @@ def load_reddit_control_dataset():
     }
     
     TOTAL_SOURCE_ROWS = sum(SUBREDDIT_SIZES.values())
-    # [UPDATED] TRIPLED the target size as requested
-    TARGET_TOTAL_SAMPLES = 3000 * len(SUBREDDIT_SIZES) # Aim for avg 3000 per subreddit
+    # [UPDATED] Increased target to 750k total (avg 15k per sub)
+    TARGET_TOTAL_SAMPLES = 15000 * len(SUBREDDIT_SIZES) 
     
     TARGET_SUBREDDITS = {}
     for sub, count in SUBREDDIT_SIZES.items():
@@ -341,7 +341,7 @@ def load_reddit_control_dataset():
         target = int((count / TOTAL_SOURCE_ROWS) * TARGET_TOTAL_SAMPLES)
         # Ensure at least a minimal sample if the subreddit exists in our list
         # And cap at a reasonable maximum to avoid one subreddit dominating
-        target = max(1500, min(target, 15000)) 
+        target = max(5000, min(target, 50000)) 
         TARGET_SUBREDDITS[sub] = target
 
     MIN_LENGTH = 50
@@ -361,10 +361,24 @@ def load_reddit_control_dataset():
             print(f"Warning: Could not load split for r/{subreddit}: {e}")
             continue
 
-        # [NEW] Randomly skip into the file to get different eras/topics
-        # Most of these subreddits have >100k rows. Skipping up to 50k is safe.
-        skip_amount = random.randint(0, 50000)
-        print(f"  > Skipping first {skip_amount} rows for diversity...")
+        # [UPDATED] Bias for Most Recent Data
+        # We know the approximate size of the subreddit from SUBREDDIT_SIZES.
+        # We want the LAST N rows, not the first N.
+        # Logic: Skip to (Total - Target - Buffer).
+        
+        approx_total = SUBREDDIT_SIZES.get(subreddit, 100000) # Fallback 100k
+        
+        # Calculate deep skip
+        # We leave a 10% buffer or 5000 rows to avoid hitting EOF if our count is slightly off
+        buffer = max(5000, int(approx_total * 0.05))
+        
+        if approx_total > (target_count + buffer):
+            skip_amount = approx_total - target_count - buffer
+            print(f"  > Deep Skip: Skipping first {skip_amount} rows to target recent data...")
+        else:
+            # Dataset too small for deep skip, read from start
+            skip_amount = 0
+            print(f"  > Dataset small ({approx_total}), reading from start...")
 
         for i, row in enumerate(dataset_stream):
             # [NEW] Skip logic
