@@ -177,8 +177,10 @@ def main():
         # but safe content (e.g. "grief" in safe contexts vs risk).
         # Actually, if we want to teach the model distinctions, we want Safe content that MIGHT look risky emotionally.
         # So we upsample "Sadness", "Fear", "Anger" in the Safe class.
+        # [UPDATED] The probe now returns simplified sentiments: 'negative', 'positive', 'neutral', 'ambiguous'.
+        # We target 'negative' sentiment for hard negatives.
         
-        target_emotions = {'sadness', 'grief', 'fear', 'anger', 'nervousness', 'annoyance', 'disappointment'}
+        target_emotions = {'negative'}
         
         def has_target_emotion(emotions_list):
             if not isinstance(emotions_list, list): return False
