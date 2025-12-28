@@ -225,51 +225,142 @@ def load_goemotions_dataset():
     print(f"Finished processing GoEmotions dataset. Total chunks: {len(df_processed)}")
     return df_processed
 
-def load_reddit_mental_health_dataset():
-    """Loads and processes the Reddit mental health dataset with cleaning."""
-    print("Loading Reddit Mental Health dataset (Risk Data)...")
+def yield_reddit_mental_health_dataset(batch_size=1000):
+    """
+    Yields batches of processed chunks from the Reddit mental health dataset.
+    Processes files iteratively to avoid memory issues.
+    """
+    print("Initializing Reddit Mental Health dataset loader (Generator)...")
     path = kagglehub.dataset_download("entenam/reddit-mental-health-dataset")
-    data_path = os.path.join(path, "Original Reddit Data", "Labelled Data")
+    data_path = os.path.join(path, "Original Reddit Data")
     
-    csv_files = glob.glob(os.path.join(data_path, "*.csv"))
-    df_list = [pd.read_csv(file) for file in csv_files]
-    df = pd.concat(df_list, ignore_index=True)
-    df = df.reset_index().rename(columns={'index': 'post_id'})
+    # Recursive search for all CSVs
+    csv_files = glob.glob(os.path.join(data_path, "**", "*.csv"), recursive=True)
+    print(f"Found {len(csv_files)} CSV files in total.")
+    
+    # Sort files to ensure deterministic order (Labelled Data first preferably)
+    # We can prioritize Labelled Data by sorting on the path string
+    csv_files.sort(key=lambda x: (0 if "Labelled Data" in x else 1, x))
 
-    # --- LABEL CLEANING ---
-    print("Cleaning labels...")
-    # Convert to string, strip whitespace, and drop NaN/empty labels
-    df['Label'] = df['Label'].astype(str).str.strip()
-    df = df[df['Label'].str.lower() != 'nan']
-    df = df[df['Label'] != '']
-    print(f"Rows after label cleaning: {len(df)}")
+    current_batch_rows = []
+    
+    for file_idx, file_path in enumerate(csv_files):
+        try:
+            is_labelled = "Labelled Data" in file_path
+            file_name = os.path.basename(file_path)
+            
+            # Read CSV - Use iterator for very large single files if needed, 
+            # but usually these splits are manageable (monthly).
+            df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False)
+            
+            # Normalize Columns
+            # User requirement: author, created_utc, score, selftext, subreddit, title
+            # However, Labeled Data files (LD*.csv) are observed to miss 'author' and 'created_utc'.
+            # We will fill them with defaults if missing to ensure we capture the data.
+            
+            # Standardize column names if necessary (e.g. lowercase)
+            # df.columns = [c.lower() for c in df.columns] # Be careful with this if case matters for values
+            
+            # Check for essential content columns
+            if 'selftext' not in df.columns:
+                 print(f"Skipping {file_name}: Missing 'selftext' column")
+                 continue
 
-    multiturn_rows = []
-    for index, row in df.iterrows():
-        selftext = str(row['selftext'])
-        chunks = chunk_text_sliding_window(selftext) # Use the sentence chunking function
-        chunk_order_id = 1
-        for chunk in chunks:
-            multiturn_rows.append({
-                'post_id': row['post_id'],
-                'chunk_id': chunk_order_id,
-                'input': chunk.strip(),
-                'score': row['score'],
-                'subreddit': row['subreddit'],
-                'title': row['title'],
-                'label': row['Label'],
-                'cat_1': row['CAT 1']
-            })
-            chunk_order_id += 1
-    df_reddit_chunks = pd.DataFrame(multiturn_rows)
+            for index, row in df.iterrows():
+                selftext = str(row['selftext'])
+                
+                # Content Filtering
+                if not selftext or selftext.lower() in ['nan', 'none', '', '[removed]', '[deleted]']:
+                    continue
+                
+                # Determine Label
+                label = "unlabeled"
+                
+                if is_labelled:
+                    # Try to find the label column
+                    if 'Label' in row:
+                        val = str(row['Label']).strip()
+                        if val.lower() != 'nan' and val != '':
+                            label = val
+                
+                # Chunking
+                chunks = chunk_text_sliding_window(selftext)
+                chunk_order_id = 1
+                
+                # Create Post ID
+                post_id = str(row.get('post_id', f"{file_name}_{index}"))
+                
+                # Get other fields safely
+                author = str(row.get('author', 'unknown'))
+                try:
+                    created_utc = float(row.get('created_utc', 0.0))
+                except (ValueError, TypeError):
+                    created_utc = 0.0
+                    
+                score = row.get('score', 0)
+                # Handle case where score might be string or missing
+                try:
+                    score = int(score)
+                except (ValueError, TypeError):
+                    score = 0
+                    
+                subreddit = str(row.get('subreddit', 'unknown'))
+                title = str(row.get('title', ''))
 
-    # Calculate token counts for the input
-    df_reddit_chunks['input_tokens'] = df_reddit_chunks['input'].apply(
-        lambda text: len(encoding.encode(text, allowed_special={"<|endofprompt|>", "<|endoftext|>"})) if isinstance(text, str) else 0
-    )
+                for chunk in chunks:
+                    if not chunk.strip(): continue
+                    
+                    current_batch_rows.append({
+                        'post_id': post_id,
+                        'chunk_id': chunk_order_id,
+                        'input': chunk.strip(),
+                        'author': author,
+                        'created_utc': created_utc,
+                        'score': score,
+                        'subreddit': subreddit,
+                        'title': title,
+                        'label': label
+                    })
+                    chunk_order_id += 1
+                    
+                    # YIELD BATCH IF FULL
+                    if len(current_batch_rows) >= batch_size:
+                        df_batch = pd.DataFrame(current_batch_rows)
+                        
+                        # Calculate tokens
+                        df_batch['input_tokens'] = df_batch['input'].apply(
+                            lambda text: len(encoding.encode(text, allowed_special={"<|endofprompt|>", "<|endoftext|>"})) if isinstance(text, str) else 0
+                        )
+                        
+                        yield df_batch
+                        current_batch_rows = []
+                        
+        except Exception as e:
+            print(f"Error processing file {file_path}: {e}")
+            continue
+            
+    # Yield remaining rows
+    if current_batch_rows:
+        df_batch = pd.DataFrame(current_batch_rows)
+        df_batch['input_tokens'] = df_batch['input'].apply(
+            lambda text: len(encoding.encode(text, allowed_special={"<|endofprompt|>", "<|endoftext|>"})) if isinstance(text, str) else 0
+        )
+        yield df_batch
 
-    print(f"Finished processing Reddit mental health dataset. Total chunks: {len(df_reddit_chunks)}")
-    return df_reddit_chunks
+def load_reddit_mental_health_dataset():
+    """
+    DEPRECATED: Use yield_reddit_mental_health_dataset for iterative processing.
+    Maintained for backward compatibility but warns.
+    """
+    print("WARNING: load_reddit_mental_health_dataset loads everything into memory.")
+    print("Use yield_reddit_mental_health_dataset instead.")
+    # Consumes the generator fully
+    batches = []
+    for batch in yield_reddit_mental_health_dataset(batch_size=10000):
+        batches.append(batch)
+    if not batches:
+        return pd.DataFrame()
+    return pd.concat(batches, ignore_index=True)
 
 def load_reddit_control_dataset():
     """Loads and processes the Reddit control (safe) dataset from HuggingFace."""
@@ -413,12 +504,17 @@ def load_reddit_control_dataset():
             # Let's assume we can generate a unique ID for the post here.
             post_id = f"{subreddit}_{i}" 
             
+            # Author
+            author = str(row.get('author', 'unknown'))
+
             chunk_order_id = 1
             for chunk in chunks:
                 collected_data[subreddit].append({
                     "post_id": post_id,
                     "chunk_id": chunk_order_id,
                     "input": chunk.strip(),
+                    "author": author,
+                    "created_utc": created_utc,
                     "subreddit": subreddit,
                     "title": title,
                     "score": row.get('score', 0),

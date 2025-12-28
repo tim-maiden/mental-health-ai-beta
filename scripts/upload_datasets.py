@@ -63,13 +63,29 @@ def main():
     # 3. Process Reddit mental health data
     if args.mental_health:
         print("\n=== STARTING MENTAL HEALTH DATASET PROCESSING ===")
-        df_reddit_chunks = load_reddit_mental_health_dataset()
-        embed_and_upload_dataframe_in_batches(
-            df_reddit_chunks, 
-            'reddit_mental_health_embeddings',
-            int_columns=['post_id', 'chunk_id', 'score', 'input_tokens']
-        )
-        print("=== FINISHED MENTAL HEALTH DATASET PROCESSING ===\n")
+        # Use the generator to process in batches
+        from src.data.loaders import yield_reddit_mental_health_dataset
+        
+        batch_counter = 0
+        total_chunks = 0
+        
+        # Adjust batch size for memory safety (e.g. 5000 chunks)
+        generator = yield_reddit_mental_health_dataset(batch_size=5000)
+        
+        for df_batch in generator:
+            batch_counter += 1
+            print(f"\n--- Processing Global Batch {batch_counter} ({len(df_batch)} chunks) ---")
+            
+            embed_and_upload_dataframe_in_batches(
+                df_batch, 
+                'reddit_mental_health_embeddings',
+                # Columns to convert to int if present
+                int_columns=['chunk_id', 'score', 'input_tokens'] 
+                # Note: post_id is now text based on our loader logic (file_idx), so removed from int_columns
+            )
+            total_chunks += len(df_batch)
+            
+        print(f"=== FINISHED MENTAL HEALTH DATASET PROCESSING (Total Chunks: {total_chunks}) ===\n")
 
     # 3. Process Reddit Control data
     if args.controls:
