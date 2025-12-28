@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--mental-health", action="store_true", help="Process and upload Reddit Mental Health dataset")
     parser.add_argument("--controls", action="store_true", help="Process and upload Reddit Safe Control dataset")
     parser.add_argument("--goemotions", action="store_true", help="Process and upload GoEmotions dataset")
+    parser.add_argument("--reset", action="store_true", help="Clear the target table before uploading (WARNING: Destructive)")
     
     args = parser.parse_args()
 
@@ -73,6 +74,32 @@ def main():
     # 3. Process Reddit Control data
     if args.controls:
         print("\n=== STARTING REDDIT CONTROL DATASET PROCESSING ===")
+        
+        # Handle Reset
+        if args.reset:
+            print("WARNING: --reset flag detected. Clearing 'reddit_safe_embeddings' table...")
+            from src.core.clients import supabase
+            # Delete all rows (id is usually > 0)
+            try:
+                # neq -1 should match all valid IDs
+                supabase.table('reddit_safe_embeddings').delete().neq('id', -1).execute()
+                print("Table cleared.")
+                
+                # Also reset progress.json for this table
+                import json
+                from src.config import PROGRESS_FILE
+                if os.path.exists(PROGRESS_FILE):
+                    with open(PROGRESS_FILE, 'r') as f:
+                        progress = json.load(f)
+                    if 'reddit_safe_embeddings' in progress:
+                        del progress['reddit_safe_embeddings']
+                        with open(PROGRESS_FILE, 'w') as f:
+                            json.dump(progress, f)
+                    print("Progress reset.")
+            except Exception as e:
+                print(f"Error clearing table: {e}")
+                print("Continuing... (Duplicate checks are not implemented, so you may get dupes)")
+
         df_control = load_reddit_control_dataset()
         embed_and_upload_dataframe_in_batches(
             df_control,

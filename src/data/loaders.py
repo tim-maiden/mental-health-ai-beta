@@ -332,7 +332,8 @@ def load_reddit_control_dataset():
     }
     
     TOTAL_SOURCE_ROWS = sum(SUBREDDIT_SIZES.values())
-    TARGET_TOTAL_SAMPLES = 1000 * len(SUBREDDIT_SIZES) # Aim for avg 1000 per subreddit
+    # [UPDATED] TRIPLED the target size as requested
+    TARGET_TOTAL_SAMPLES = 3000 * len(SUBREDDIT_SIZES) # Aim for avg 3000 per subreddit
     
     TARGET_SUBREDDITS = {}
     for sub, count in SUBREDDIT_SIZES.items():
@@ -340,7 +341,7 @@ def load_reddit_control_dataset():
         target = int((count / TOTAL_SOURCE_ROWS) * TARGET_TOTAL_SAMPLES)
         # Ensure at least a minimal sample if the subreddit exists in our list
         # And cap at a reasonable maximum to avoid one subreddit dominating
-        target = max(500, min(target, 5000)) 
+        target = max(1500, min(target, 15000)) 
         TARGET_SUBREDDITS[sub] = target
 
     MIN_LENGTH = 50
