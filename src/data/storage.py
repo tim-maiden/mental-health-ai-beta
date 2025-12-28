@@ -99,7 +99,13 @@ def fetch_data(table_name, fetch_size=1000, columns=None):
     while True:
         offset = page * fetch_size
         # Select specified columns
-        response = supabase.table(table_name).select(select_str).limit(fetch_size).offset(offset).execute()
+        query = supabase.table(table_name).select(select_str)
+        
+        # Ensure deterministic ordering for pagination
+        if "post_id" in columns and "chunk_id" in columns:
+            query = query.order("post_id", desc=False).order("chunk_id", desc=False)
+            
+        response = query.limit(fetch_size).offset(offset).execute()
         data = response.data
         if not data:
             break

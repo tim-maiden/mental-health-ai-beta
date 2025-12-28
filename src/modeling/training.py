@@ -15,6 +15,11 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 class CustomTrainer(Trainer):
+    def __init__(self, risk_indices=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Store the indices of the "Risk" classes (e.g., [0, 4, 12...])
+        self.risk_indices = torch.tensor(risk_indices) if risk_indices else None
+
     def compute_loss(self, model, inputs, return_outputs=False):
         # inputs.get("labels") usually contains the binary/hard labels
         # We need the soft labels. The dataset mapper should have put them in "soft_labels"
@@ -28,7 +33,7 @@ class CustomTrainer(Trainer):
         outputs = model(**inputs)
         logits = outputs.get("logits")
         
-        # KL Divergence Loss
+        # 1. Standard Distillation Loss (Fine-Grained)
         # Input: Log_Softmax(logits)
         # Target: Probabilities (labels)
         
@@ -37,9 +42,30 @@ class CustomTrainer(Trainer):
         # nn.KLDivLoss expects input to be log-probabilities and target to be probabilities.
         # batchmean is mathematically correct for KL.
         loss_fct = nn.KLDivLoss(reduction="batchmean")
-        loss = loss_fct(log_probs, labels)
+        main_loss = loss_fct(log_probs, labels)
         
-        return (loss, outputs) if return_outputs else loss
+        # 2. Binary Consistency Loss (Hierarchical Loss)
+        if self.risk_indices is not None:
+            # Ensure indices are on correct device
+            if self.risk_indices.device != logits.device:
+                self.risk_indices = self.risk_indices.to(logits.device)
+
+            # Calculate total probability mass predicted for RISK classes
+            probs = F.softmax(logits, dim=-1)
+            pred_risk_mass = torch.sum(probs[:, self.risk_indices], dim=1)
+            
+            # Calculate total probability mass the TEACHER assigned to RISK classes
+            target_risk_mass = torch.sum(labels[:, self.risk_indices], dim=1)
+            
+            # Force them to match (MSE)
+            aux_loss = F.mse_loss(pred_risk_mass, target_risk_mass)
+            
+            # Combine: 80% Fine-Grained, 20% Binary enforcement (0.5 weight relative to KL roughly)
+            total_loss = main_loss + (0.5 * aux_loss)
+        else:
+            total_loss = main_loss
+        
+        return (total_loss, outputs) if return_outputs else total_loss
 
 def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_size=16, model_id=None, train_size=0):
     """

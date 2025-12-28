@@ -3,7 +3,10 @@ import sys
 import torch
 import wandb
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding, Trainer
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding, Trainer, set_seed
+
+# Set seed for reproducibility
+set_seed(42)
 
 # Disable tokenizer parallelism to prevent deadlocks with DataLoaders
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -89,6 +92,44 @@ def main():
         problem_type="multi_label_classification" # Hint to HF (though we override loss anyway)
     )
 
+    # --- Regularization: Partial Freezing ---
+    print("Freezing bottom 50% of the model (Embeddings + 12 Encoders)...")
+    # Freeze embeddings
+    if hasattr(model, 'deberta'):
+        base_model = model.deberta
+    elif hasattr(model, 'bert'):
+        base_model = model.bert
+    else:
+        # Fallback for generic structure, assuming 'deberta' based on config
+        base_model = getattr(model, 'deberta', None)
+    
+    if base_model:
+        for param in base_model.embeddings.parameters():
+            param.requires_grad = False
+            
+        # Freeze bottom 12 encoders (out of 24 for Large)
+        # Check if layer exists (Small model only has 6 layers)
+        if hasattr(base_model.encoder, 'layer'):
+            layers = base_model.encoder.layer
+            num_layers = len(layers)
+            num_freeze = num_layers // 2
+            print(f"Freezing {num_freeze} out of {num_layers} layers.")
+            for layer in layers[:num_freeze]:
+                for param in layer.parameters():
+                    param.requires_grad = False
+    else:
+        print("Warning: Could not identify base model for freezing. Skipping.")
+
+    # Load Risk Indices
+    risk_indices_path = os.path.join(DATA_DIR, "risk_indices.json")
+    risk_indices = None
+    if os.path.exists(risk_indices_path):
+        with open(risk_indices_path, "r") as f:
+            risk_indices = json.load(f)
+        print(f"Loaded {len(risk_indices)} risk indices for Hierarchical Loss.")
+    else:
+        print("Warning: risk_indices.json not found. Hierarchical Loss will be disabled.")
+
     # Note: Model compilation is now handled by Trainer via torch_compile parameter
     # This avoids signature inspection issues with torch.compile()
 
@@ -102,6 +143,7 @@ def main():
     training_args.metric_for_best_model = "eval_accuracy"
 
     trainer = CustomTrainer(
+        risk_indices=risk_indices,
         model=model,
         args=training_args,
         train_dataset=tokenized_datasets["train"],

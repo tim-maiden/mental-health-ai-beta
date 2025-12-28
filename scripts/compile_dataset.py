@@ -292,8 +292,9 @@ def main():
         return soft_labels
 
     # Apply to Final Train and Test using the teacher set
-    final_train['soft_label'] = compute_soft_labels_knn(final_train, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=final_subreddit_to_id)
-    test_df['soft_label'] = compute_soft_labels_knn(test_df, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=final_subreddit_to_id)
+    # Using T=1.0 as advised to preserve dark knowledge (relationships between classes)
+    final_train['soft_label'] = compute_soft_labels_knn(final_train, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=final_subreddit_to_id)
+    test_df['soft_label'] = compute_soft_labels_knn(test_df, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=final_subreddit_to_id)
 
     # Also save the subreddit mapping
     import json
@@ -301,6 +302,16 @@ def main():
     with open(mapping_file, "w") as f:
         json.dump(final_subreddit_to_id, f)
     print(f"Saved subreddit mapping to {mapping_file}")
+
+    # Save Risk Indices for Hierarchical Loss
+    # Identify risk subreddits from the risk dataframe (using the clean filtered set)
+    risk_subs = set(train_risk_clean_full['subreddit'].unique())
+    risk_indices = [idx for sub, idx in final_subreddit_to_id.items() if sub in risk_subs]
+    
+    risk_indices_file = os.path.join(DATA_DIR, "risk_indices.json")
+    with open(risk_indices_file, "w") as f:
+        json.dump(risk_indices, f)
+    print(f"Saved {len(risk_indices)} risk indices to {risk_indices_file}")
 
     # ==========================================================
     # PHASE 2: PROCESS TEST DATA
