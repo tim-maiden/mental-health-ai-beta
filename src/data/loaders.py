@@ -385,13 +385,24 @@ def load_reddit_control_dataset():
             if created_utc > END_UTC:
                 continue # Too new
 
+            # Strict Selftext Quality Filter
+            body = row.get('selftext', "")
+            
+            # Filter 1: Existence
+            if not body or not isinstance(body, str) or not body.strip():
+                continue # Skip empty bodies
+
+            # Filter 2: Length (Token count of BODY only)
+            # encoding is already imported from src.core.clients
+            if len(encoding.encode(body)) < 20:
+                continue # Skip bodies shorter than the single chunk length
+
             # Content Filter: Combine Title + Selftext (Body)
             title = row.get('title', "")
-            body = row.get('selftext', "")
             full_text = f"{title}\n{body}".strip()
             
-            # Quality Check
-            if len(full_text) < MIN_LENGTH or "[removed]" in body or "[deleted]" in body:
+            # Check for removal markers
+            if "[removed]" in body or "[deleted]" in body:
                 continue
                 
             # Add to collection
@@ -429,6 +440,7 @@ def load_reddit_control_dataset():
         final_rows.extend(sub_rows)
     
     # Shuffle to mix them up
+    random.seed(42)
     random.shuffle(final_rows)
     
     df = pd.DataFrame(final_rows)
