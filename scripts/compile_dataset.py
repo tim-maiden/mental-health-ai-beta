@@ -150,31 +150,32 @@ def main():
     print(f"Safe Prototypes (Density < {SAFE_DENSITY_THRESHOLD}): {len(safe_prototypes)}")
     print(f"Safe Hard Negatives ({SAFE_DENSITY_THRESHOLD} <= Density < {HARD_NEGATIVE_UPPER_BOUND}): {len(safe_hard_negatives)}")
     
-    # F. 1:5 Ratio Balancing (Prioritizing Hard Negatives)
-    print(f"\n--- Balancing Dataset (Target Ratio 1 Risk : 5 Safe) ---")
+    # F. Ratio-Based Balancing (1 Risk : 5 Safe)
+    print(f"\n--- Compiling Dataset with Enforced 1:5 Ratio ---")
     
+    # 1. Determine Target Safe Count
     risk_count = len(train_risk_clean_full)
     target_safe_count = risk_count * 5
-    print(f"Risk Count: {risk_count} | Target Safe Count: {target_safe_count}")
-
-    # 1. Use ALL Hard Negatives (Crucial for boundary definitions)
-    # These are the most valuable samples (Safe content that looks like Risk).
-    safe_hard_sampled = safe_hard_negatives
-    print(f"Using {len(safe_hard_sampled)} Hard Negatives (All Available).")
+    print(f"Target Safe Count: {target_safe_count} (Risk Count: {risk_count})")
     
-    # 2. Fill Remainder with Prototypes (Crucial for establishing "Normalcy")
+    # 2. Prioritize Hard Negatives (Keep ALL of them for boundary definition)
+    # These are the most valuable samples.
+    safe_hard_sampled = safe_hard_negatives
+    
+    # 3. Fill Remainder with Prototypes
     needed_prototypes = target_safe_count - len(safe_hard_sampled)
     
     if needed_prototypes > 0:
+        # Sample from the prototypes to fill the quota
+        # If we had emotion labels, we would prioritize "Joy/Optimism" here.
+        # Since we don't (or choose not to use them), random sampling is the next best thing.
         if len(safe_prototypes) > needed_prototypes:
-            print(f"Sampling {needed_prototypes} Prototypes from {len(safe_prototypes)} available.")
             safe_proto_sampled = safe_prototypes.sample(n=needed_prototypes, random_state=42)
         else:
-            print(f"Taking all {len(safe_prototypes)} available Prototypes (Prototype deficit).")
             safe_proto_sampled = safe_prototypes
     else:
-        print("Warning: Hard Negatives exceed target budget. Using Hard Negatives only.")
-        safe_proto_sampled = pd.DataFrame()
+        # Rare case where we have huge number of hard negatives
+        safe_proto_sampled = pd.DataFrame() 
 
     safe_combined = pd.concat([safe_proto_sampled, safe_hard_sampled])
     
@@ -187,10 +188,10 @@ def main():
     # Shuffle
     final_train = final_train.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    print(f"Final Training Distribution:")
+    print(f"Final Training Distribution (RATIO ENFORCED):")
     print(f" - Risk Prototypes: {len(train_risk_clean_full)}")
-    print(f" - Safe Combined: {len(safe_combined)} ({len(safe_proto_sampled)} Proto + {len(safe_hard_sampled)} Hard)")
-    print(f" - Ratio: 1 Risk : {len(safe_combined)/risk_count:.1f} Safe")
+    print(f" - Safe Combined: {len(safe_combined)}")
+    print(f" - Ratio: 1 Risk : {len(safe_combined)/len(train_risk_clean_full):.1f} Safe")
     
     # ==========================================================
     # PHASE 1.5: GENERATE SOFT LABELS (EMBEDDING DISTILLATION)
