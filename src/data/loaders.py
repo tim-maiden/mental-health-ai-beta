@@ -387,6 +387,7 @@ def load_reddit_control_dataset():
 
             # Strict Selftext Quality Filter
             body = row.get('selftext', "")
+            title = row.get('title', "")
             
             # Filter 1: Existence
             if not body or not isinstance(body, str) or not body.strip():
@@ -396,18 +397,14 @@ def load_reddit_control_dataset():
             # encoding is already imported from src.core.clients
             if len(encoding.encode(body)) < 20:
                 continue # Skip bodies shorter than the single chunk length
-
-            # Content Filter: Combine Title + Selftext (Body)
-            title = row.get('title', "")
-            full_text = f"{title}\n{body}".strip()
             
             # Check for removal markers
             if "[removed]" in body or "[deleted]" in body:
                 continue
                 
             # Add to collection
-            # Chunk the text to match mental health dataset processing
-            chunks = chunk_text_sliding_window(full_text)
+            # Chunk the text to match mental health dataset processing (Body only)
+            chunks = chunk_text_sliding_window(body.strip())
             
             # We need a unique ID for each post to track chunks
             # Since we don't have a post_id from this dataset, we'll generate one
@@ -425,6 +422,8 @@ def load_reddit_control_dataset():
                     "chunk_id": chunk_order_id,
                     "input": chunk.strip(),
                     "subreddit": subreddit,
+                    "title": title,
+                    "score": row.get('score', 0),
                     "label": "Safe_Control"
                 })
                 chunk_order_id += 1
