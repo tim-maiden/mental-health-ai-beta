@@ -133,11 +133,30 @@ def main():
             if records:
                 try:
                     # Upload in smaller chunks to Supabase to avoid timeout
-                    sub_batch_size = 1000
-                    for i in range(0, len(records), sub_batch_size):
-                        sub_batch = records[i:i+sub_batch_size]
-                        supabase.table('reddit_mental_health_embeddings').insert(sub_batch).execute()
-                        print(f"Uploaded {len(sub_batch)} rows...", end="\r")
+                    # Use globally configured BATCH_SIZE (250)
+                    from src.config import BATCH_SIZE as SUB_BATCH_SIZE
+                    import time
+                    
+                    for i in range(0, len(records), SUB_BATCH_SIZE):
+                        sub_batch = records[i:i+SUB_BATCH_SIZE]
+                        
+                        # Retry logic for Supabase inserts
+                        max_retries = 5
+                        for attempt in range(max_retries):
+                            try:
+                                supabase.table('reddit_mental_health_embeddings').insert(sub_batch).execute()
+                                print(f"Uploaded {len(sub_batch)} rows...", end="\r")
+                                break # Success, exit retry loop
+                            except Exception as e:
+                                print(f"\nError uploading sub-batch (Attempt {attempt+1}/{max_retries}): {e}")
+                                if attempt < max_retries - 1:
+                                    sleep_time = 5 * (2 ** attempt) # Exponential backoff: 5, 10, 20, 40s
+                                    print(f"Retrying in {sleep_time} seconds...")
+                                    time.sleep(sleep_time)
+                                else:
+                                    print("Max retries reached. Failing batch.")
+                                    raise e # Re-raise to trigger outer exception handler
+                                    
                     print("\nBatch upload complete.")
                     
                     # Update Progress

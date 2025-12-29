@@ -42,7 +42,15 @@ def embed_and_upload_dataframe_in_batches(df: pd.DataFrame, table_name: str, bat
         
         # --- Data Cleaning ---
         # Clean null characters from all object (likely string) columns
+        # BUT skip columns that are actually lists (like 'emotions')
         for col in batch_df.select_dtypes(include=['object']).columns:
+            # Check if the column likely contains lists (by checking first non-null element)
+            first_valid_index = batch_df[col].first_valid_index()
+            if first_valid_index is not None:
+                sample_val = batch_df.loc[first_valid_index, col]
+                if isinstance(sample_val, list):
+                    continue
+
             batch_df.loc[:, col] = batch_df[col].astype(str).str.replace('\u0000', '', regex=False)
         
         # Calculate batch number relative to the start of the whole dataset
