@@ -229,37 +229,32 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
     """
     Yields batches of processed chunks from the Reddit mental health dataset.
     Processes files iteratively to avoid memory issues.
+    ONLY loads from the 'raw data' directory to ensure metadata consistency (author, date).
     """
     print("Initializing Reddit Mental Health dataset loader (Generator)...")
     path = kagglehub.dataset_download("entenam/reddit-mental-health-dataset")
-    data_path = os.path.join(path, "Original Reddit Data")
+    # STRICTLY target "raw data" folder inside Original Reddit Data
+    # This avoids the "Labelled Data" folder which has missing metadata
+    data_path = os.path.join(path, "Original Reddit Data", "raw data")
     
-    # Recursive search for all CSVs
+    # Recursive search for all CSVs in raw data
     csv_files = glob.glob(os.path.join(data_path, "**", "*.csv"), recursive=True)
-    print(f"Found {len(csv_files)} CSV files in total.")
+    print(f"Found {len(csv_files)} raw data CSV files.")
     
-    # Sort files to ensure deterministic order (Labelled Data first preferably)
-    # We can prioritize Labelled Data by sorting on the path string
-    csv_files.sort(key=lambda x: (0 if "Labelled Data" in x else 1, x))
+    # Sort files for deterministic order
+    csv_files.sort()
 
     current_batch_rows = []
     
     for file_idx, file_path in enumerate(csv_files):
         try:
-            is_labelled = "Labelled Data" in file_path
             file_name = os.path.basename(file_path)
             
-            # Read CSV - Use iterator for very large single files if needed, 
-            # but usually these splits are manageable (monthly).
+            # Read CSV
             df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False)
             
             # Normalize Columns
             # User requirement: author, created_utc, score, selftext, subreddit, title
-            # However, Labeled Data files (LD*.csv) are observed to miss 'author' and 'created_utc'.
-            # We will fill them with defaults if missing to ensure we capture the data.
-            
-            # Standardize column names if necessary (e.g. lowercase)
-            # df.columns = [c.lower() for c in df.columns] # Be careful with this if case matters for values
             
             # Check for essential content columns
             if 'selftext' not in df.columns:
@@ -273,16 +268,6 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                 if not selftext or selftext.lower() in ['nan', 'none', '', '[removed]', '[deleted]']:
                     continue
                 
-                # Determine Label
-                label = "unlabeled"
-                
-                if is_labelled:
-                    # Try to find the label column
-                    if 'Label' in row:
-                        val = str(row['Label']).strip()
-                        if val.lower() != 'nan' and val != '':
-                            label = val
-                
                 # Chunking
                 chunks = chunk_text_sliding_window(selftext)
                 chunk_order_id = 1
@@ -290,7 +275,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                 # Create Post ID
                 post_id = str(row.get('post_id', f"{file_name}_{index}"))
                 
-                # Get other fields safely
+                # Get other fields - Raw data is expected to have these
                 author = str(row.get('author', 'unknown'))
                 try:
                     created_utc = float(row.get('created_utc', 0.0))
@@ -319,7 +304,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                         'score': score,
                         'subreddit': subreddit,
                         'title': title,
-                        'label': label
+                        'label': "unlabeled" # We are ignoring labels
                     })
                     chunk_order_id += 1
                     
