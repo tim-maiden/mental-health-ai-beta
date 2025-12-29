@@ -401,8 +401,8 @@ def load_reddit_control_dataset():
     """Loads and processes the Reddit control (safe) dataset from HuggingFace."""
     print("Loading Reddit Control dataset (Safe Data)...")
     
-    # Target approximately 200 samples per subreddit on average (Total ~10,000)
-    # Sampling proportional to split size from the source dataset.
+    # Target approximately 60,000 samples per subreddit on average (Total ~3M target to land 1.5M actual)
+    # We increased this 4x because yield was low (approx 60%) and we want 1.5M chunks.
     
     SUBREDDIT_SIZES = {
         "tifu": 526000,
@@ -458,8 +458,8 @@ def load_reddit_control_dataset():
     }
     
     TOTAL_SOURCE_ROWS = sum(SUBREDDIT_SIZES.values())
-    # [UPDATED] Increased target to 750k total (avg 15k per sub)
-    TARGET_TOTAL_SAMPLES = 15000 * len(SUBREDDIT_SIZES) 
+    # [UPDATED] Increased target to ~3M total (avg 60k per sub) to achieve 1.5M valid chunks
+    TARGET_TOTAL_SAMPLES = 60000 * len(SUBREDDIT_SIZES) 
     
     TARGET_SUBREDDITS = {}
     for sub, count in SUBREDDIT_SIZES.items():
@@ -467,12 +467,16 @@ def load_reddit_control_dataset():
         target = int((count / TOTAL_SOURCE_ROWS) * TARGET_TOTAL_SAMPLES)
         # Ensure at least a minimal sample if the subreddit exists in our list
         # And cap at a reasonable maximum to avoid one subreddit dominating
-        target = max(5000, min(target, 50000)) 
+        # UPDATED CAPS: Min 10k, Max 200k
+        target = max(10000, min(target, 200000)) 
         TARGET_SUBREDDITS[sub] = target
     
     print(f"Targeting {sum(TARGET_SUBREDDITS.values())} rows across {len(TARGET_SUBREDDITS)} subreddits...")
     
     collected_data = {sub: [] for sub in TARGET_SUBREDDITS.keys()}
+    # Track post counts per author to prevent power-user bias
+    author_counts = {} 
+    MAX_POSTS_PER_AUTHOR = 3
     
     print("Streaming and filtering data (this may take a moment)...")
     
@@ -542,6 +546,14 @@ def load_reddit_control_dataset():
             
             # Author
             author = str(row.get('author', 'unknown'))
+
+            # Author Cap Check (Global or Per-Subreddit? Global is better for actor split)
+            if author != 'unknown':
+                current_count = author_counts.get(author, 0)
+                if current_count >= MAX_POSTS_PER_AUTHOR:
+                    continue # Skip this post, this author has enough representation
+                
+                author_counts[author] = current_count + 1
 
             chunk_order_id = 1
             for chunk in chunks:
