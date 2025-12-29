@@ -14,13 +14,11 @@ CREATE TABLE reddit_mental_health_embeddings (
     input text, -- The chunked text
     input_tokens int,
     embedding vector(1536), -- Adjust dimension if using a different model
-    label text,
     emotion_label text, -- Predicted emotion from probe
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- Create indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_reddit_mh_label ON reddit_mental_health_embeddings(label);
 CREATE INDEX IF NOT EXISTS idx_reddit_mh_subreddit ON reddit_mental_health_embeddings(subreddit);
 CREATE INDEX IF NOT EXISTS idx_reddit_mh_post_id ON reddit_mental_health_embeddings(post_id);
 CREATE INDEX IF NOT EXISTS idx_reddit_mh_emotion ON reddit_mental_health_embeddings(emotion_label);

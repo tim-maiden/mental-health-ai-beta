@@ -303,8 +303,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                         'created_utc': created_utc,
                         'score': score,
                         'subreddit': subreddit,
-                        'title': title,
-                        'label': "unlabeled" # We are ignoring labels
+                        'title': title
                     })
                     chunk_order_id += 1
                     
@@ -502,8 +501,7 @@ def load_reddit_control_dataset():
                     "created_utc": created_utc,
                     "subreddit": subreddit,
                     "title": title,
-                    "score": row.get('score', 0),
-                    "label": "Safe_Control"
+                    "score": row.get('score', 0)
                 })
                 chunk_order_id += 1
 

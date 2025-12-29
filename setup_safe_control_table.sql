@@ -14,13 +14,11 @@ CREATE TABLE reddit_safe_embeddings (
     input text, -- The chunked text
     input_tokens int,
     embedding vector(1536), -- Adjust dimension if using a different model
-    label text,
     emotion_label text, -- Predicted emotion from probe
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- Create indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_reddit_safe_label ON reddit_safe_embeddings(label);
 CREATE INDEX IF NOT EXISTS idx_reddit_safe_subreddit ON reddit_safe_embeddings(subreddit);
 CREATE INDEX IF NOT EXISTS idx_reddit_safe_post_id ON reddit_safe_embeddings(post_id);
 CREATE INDEX IF NOT EXISTS idx_reddit_safe_emotion ON reddit_safe_embeddings(emotion_label);
