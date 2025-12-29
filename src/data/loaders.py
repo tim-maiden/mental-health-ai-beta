@@ -225,13 +225,18 @@ def load_goemotions_dataset():
     print(f"Finished processing GoEmotions dataset. Total chunks: {len(df_processed)}")
     return df_processed
 
-def yield_reddit_mental_health_dataset(batch_size=1000):
+def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=None):
     """
     Yields batches of processed chunks from the Reddit mental health dataset.
     Processes files iteratively to avoid memory issues.
     ONLY loads from the 'raw data' directory to ensure metadata consistency (author, date).
+    
+    Args:
+        batch_size (int): Number of chunks per yielded batch.
+        sample_rate (float): Fraction of posts to process (0.0 to 1.0). Used for downsampling.
+        limit (int): Maximum number of chunks to yield in total.
     """
-    print("Initializing Reddit Mental Health dataset loader (Generator)...")
+    print(f"Initializing Reddit Mental Health dataset loader (Generator). Sample Rate: {sample_rate}, Limit: {limit}...")
     path = kagglehub.dataset_download("entenam/reddit-mental-health-dataset")
     # STRICTLY target "raw data" folder inside Original Reddit Data
     # This avoids the "Labelled Data" folder which has missing metadata
@@ -244,9 +249,18 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
     # Sort files for deterministic order
     csv_files.sort()
 
+    # Set seed for reproducible sampling
+    random.seed(42)
+
     current_batch_rows = []
+    total_chunks_yielded = 0
     
     for file_idx, file_path in enumerate(csv_files):
+        # Stop if we hit the global limit
+        if limit is not None and total_chunks_yielded >= limit:
+            print(f"Global limit of {limit} chunks reached. Stopping.")
+            break
+
         try:
             file_name = os.path.basename(file_path)
             
@@ -276,10 +290,19 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
             END_UTC = 1661990400
 
             for index, row in df.iterrows():
+                # Stop if we hit the global limit (check inside loop for precision)
+                if limit is not None and total_chunks_yielded >= limit:
+                    break
+
                 selftext = str(row['selftext'])
                 
                 # Content Filtering
                 if not selftext or selftext.lower() in ['nan', 'none', '', '[removed]', '[deleted]']:
+                    continue
+
+                # Downsampling: Randomly skip posts based on sample_rate
+                # We check this BEFORE date filtering to simulate a smaller dataset of the same distribution
+                if sample_rate < 1.0 and random.random() > sample_rate:
                     continue
                 
                 # Date Filtering
@@ -330,7 +353,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                     })
                     chunk_order_id += 1
                     
-                    # YIELD BATCH IF FULL
+                        # YIELD BATCH IF FULL
                     if len(current_batch_rows) >= batch_size:
                         df_batch = pd.DataFrame(current_batch_rows)
                         
@@ -340,19 +363,24 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                         )
                         
                         yield df_batch
+                        total_chunks_yielded += len(df_batch)
                         current_batch_rows = []
+                        
+                        if limit is not None and total_chunks_yielded >= limit:
+                            break
                         
         except Exception as e:
             print(f"Error processing file {file_path}: {e}")
             continue
             
     # Yield remaining rows
-    if current_batch_rows:
+    if current_batch_rows and (limit is None or total_chunks_yielded < limit):
         df_batch = pd.DataFrame(current_batch_rows)
         df_batch['input_tokens'] = df_batch['input'].apply(
             lambda text: len(encoding.encode(text, allowed_special={"<|endofprompt|>", "<|endoftext|>"})) if isinstance(text, str) else 0
         )
         yield df_batch
+        total_chunks_yielded += len(df_batch)
 
 def load_reddit_mental_health_dataset():
     """

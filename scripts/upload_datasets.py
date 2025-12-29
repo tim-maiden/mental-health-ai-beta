@@ -82,7 +82,15 @@ def main():
         current_offset = 0
         
         # Adjust batch size for memory safety (e.g. 5000 chunks)
-        generator = yield_reddit_mental_health_dataset(batch_size=5000)
+        # UPDATED: Use sampling to reduce dataset size.
+        # Estimated total raw rows ~5M+. Target ~600k-800k.
+        # Sample rate 0.15 => ~15% of 5M = 750k.
+        # Hard limit at 1M just in case.
+        generator = yield_reddit_mental_health_dataset(
+            batch_size=5000,
+            sample_rate=0.15,
+            limit=1000000
+        )
         
         for df_batch in generator:
             batch_len = len(df_batch)
