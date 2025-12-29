@@ -250,6 +250,15 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
         try:
             file_name = os.path.basename(file_path)
             
+            # Date Filtering at File Level (Optimization)
+            # The raw files are named like 'anxiaug22.csv', 'depfeb21.csv', 'mhnov19.csv'
+            # We can try to filter files that are clearly out of range to save reading time.
+            # Range: Aug 2021 (08/21) to Aug 2022 (08/22)
+            # Years of interest: 2021, 2022.
+            # If a file has '19' or '20' or '18' in name, we might skip it.
+            # But relying on file names is risky if naming isn't consistent.
+            # However, we DO need to filter rows by created_utc regardless.
+            
             # Read CSV
             df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False)
             
@@ -261,6 +270,11 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                  print(f"Skipping {file_name}: Missing 'selftext' column")
                  continue
 
+            # Check dates if column exists
+            # Aug 1 2021 - Aug 31 2022
+            START_UTC = 1627776000
+            END_UTC = 1661990400
+
             for index, row in df.iterrows():
                 selftext = str(row['selftext'])
                 
@@ -268,6 +282,15 @@ def yield_reddit_mental_health_dataset(batch_size=1000):
                 if not selftext or selftext.lower() in ['nan', 'none', '', '[removed]', '[deleted]']:
                     continue
                 
+                # Date Filtering
+                try:
+                    created_utc = float(row.get('created_utc', 0.0))
+                except (ValueError, TypeError):
+                    created_utc = 0.0
+                
+                if created_utc < START_UTC or created_utc > END_UTC:
+                    continue
+
                 # Chunking
                 chunks = chunk_text_sliding_window(selftext)
                 chunk_order_id = 1
@@ -434,12 +457,13 @@ def load_reddit_control_dataset():
             print(f"Warning: Could not load split for r/{subreddit}: {e}")
             continue
 
-        # [UPDATED] Date Filtering (Jan 1 2019 - Sep 1 2022)
-        # We replace the random/tail skip with precise temporal filtering to match Risk data window.
-        START_UTC = 1546300800
+        # [UPDATED] Date Filtering (Aug 2021 - Aug 2022)
+        # Aug 1, 2021 = 1627776000
+        # Aug 31, 2022 = 1661990400
+        START_UTC = 1627776000
         END_UTC = 1661990400
         
-        print(f"  > Scanning for posts between 2019-01-01 and 2022-09-01...")
+        print(f"  > Scanning for posts between 2021-08-01 and 2022-08-31...")
 
         for i, row in enumerate(dataset_stream):
             # Check if we have enough for this sub

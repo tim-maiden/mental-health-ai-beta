@@ -5,12 +5,15 @@ from tqdm import tqdm
 from src.core.clients import openai_client, encoding
 from src.services.rate_limiter import rate_limiter
 
-def embed_text(text, large=False, retries=3, delay=5):
+def embed_text(text, large=True, retries=3, delay=5):
     """
     Embeds text using OpenAI's API with retry logic for rate limiting.
+    Defaults to text-embedding-3-large but reduced to 1536 dimensions 
+    to match the legacy schema size while getting better quality.
     """
     model = "text-embedding-3-large" if large else "text-embedding-3-small"
-    dimensions = 3072 if large else 1536
+    # User requested 'large' model but with same dimensions as before (1536)
+    dimensions = 1536 
     
     # Proactively manage rate limits before making the API call
     try:
