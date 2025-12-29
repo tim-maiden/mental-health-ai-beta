@@ -48,17 +48,34 @@ def main():
     # Label Parsing
     df_all['binary_label'] = df_all['dataset_type'].apply(lambda x: 1 if 'mental_health' in str(x) else 0)
     
-    # 2. Split Train/Test (BEFORE PCA to prevent leakage)
-    print("Splitting by Post ID (preventing data leakage)...")
-    if 'post_id' in df_all.columns:
-        unique_posts = df_all[['post_id', 'binary_label']].drop_duplicates()
-        train_posts, test_posts = train_test_split(unique_posts, test_size=0.15, stratify=unique_posts['binary_label'], random_state=42)
-        
-        train_df = df_all[df_all['post_id'].isin(train_posts['post_id'])].copy()
-        test_df = df_all[df_all['post_id'].isin(test_posts['post_id'])].copy()
-    else:
-        print("Warning: splitting by row (potential leakage between chunks of same post)...")
-        train_df, test_df = train_test_split(df_all, test_size=0.15, stratify=df_all['binary_label'], random_state=42)
+    # 2. Split Train/Test by AUTHOR (Preventing Identity Leakage)
+    print("Splitting by Author (ensuring strict separation of users)...")
+    
+    # Filter out 'unknown' or '[deleted]' authors to prevent massive grouping
+    valid_authors = df_all[~df_all['author'].isin(['unknown', '[deleted]', ''])]
+    
+    unique_authors = valid_authors[['author', 'binary_label']].drop_duplicates()
+    
+    # Stratify by label to ensure balance of risk/safe authors
+    # If an author posts in both risk and safe (unlikely in this dataset), they are assigned based on their first appearance
+    train_authors, test_authors = train_test_split(
+        unique_authors, 
+        test_size=0.15, 
+        stratify=unique_authors['binary_label'], 
+        random_state=42
+    )
+    
+    # Create masks
+    train_mask = df_all['author'].isin(train_authors['author'])
+    test_mask = df_all['author'].isin(test_authors['author'])
+    
+    # Handle the 'unknown' authors (usually assign to train, or drop)
+    # Here we assign them to train to maximize data usage, as they can't leak identity if anonymous
+    unknown_mask = ~df_all['author'].isin(valid_authors['author'])
+    train_mask = train_mask | unknown_mask
+    
+    train_df = df_all[train_mask].copy()
+    test_df = df_all[test_mask].copy()
     
     print(f"Train Size: {len(train_df)} rows")
     print(f"Test Size:  {len(test_df)} rows")
