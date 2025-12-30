@@ -179,7 +179,7 @@ def train_probe(df):
     # Use OneVsRest with Logistic Regression
     base_clf = LogisticRegression(
         solver='lbfgs',
-        class_weight='balanced',
+        class_weight=None,
         max_iter=1000,
         random_state=42,
         verbose=1
@@ -259,9 +259,9 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
                 probas = clf.predict_proba(X_batch)
                 
                 # --- LATE FUSION AGGREGATION ---
-                # Sum probabilities across the buckets
-                pos_scores = np.sum(probas[:, pos_indices], axis=1)
-                neg_scores = np.sum(probas[:, neg_indices], axis=1)
+                # Use np.max instead of np.sum to enforce single-emotion confidence
+                pos_scores = np.max(probas[:, pos_indices], axis=1)
+                neg_scores = np.max(probas[:, neg_indices], axis=1)
                 
                 # Apply Thresholds (High purity requirement)
                 THRESHOLD = 0.90
