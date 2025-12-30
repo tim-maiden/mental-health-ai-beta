@@ -24,9 +24,13 @@ MANIFEST
 
 # Ignore local data and outputs (we should fetch/generate these in the cloud)
 data/
+data/*
 outputs/
+outputs/*
 models/
+models/*
 logs/
+logs/*
 
 # Virtual Environment
 venv/

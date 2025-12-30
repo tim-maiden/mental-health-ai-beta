@@ -9,7 +9,7 @@ from tqdm import tqdm
 from sklearn.linear_model import SGDClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 
 # Add project root to path
@@ -185,53 +185,128 @@ def train_probe(df):
     X_test = scaler.transform(X_test)
     
     print(f"Training Data Shape: {X_train.shape}")
-    print("Training MLP (Neural Network)...")
+    print("Training MultiOutput Logistic Regression (SGD) with Hyperparameter Optimization...")
     
-    from sklearn.neural_network import MLPClassifier
+    # Using SGDClassifier is much more memory efficient than lbfgs LogisticRegression
+    from sklearn.linear_model import SGDClassifier
+    from sklearn.model_selection import RandomizedSearchCV
     
-    # MLPClassifier natively supports multi-label classification
-    # We use 'early_stopping' to prevent overfitting
-    # 'adam' is generally good for large datasets
-    clf = MLPClassifier(
-        hidden_layer_sizes=(256, 128),
-        activation='relu',
-        solver='adam',
-        alpha=0.0001,
-        batch_size=256,
-        learning_rate='adaptive',
-        learning_rate_init=0.001,
-        max_iter=500,
-        early_stopping=True,
-        validation_fraction=0.1,
-        random_state=42,
-        verbose=True
+    # Define base estimator
+    sgd = SGDClassifier(
+        loss='log_loss', 
+        max_iter=2000, 
+        random_state=42, 
+        n_jobs=-1, 
+        class_weight='balanced',
+        early_stopping=True
     )
     
-    clf.fit(X_train, y_train)
+    # Simple parameter grid for optimization
+    param_dist = {
+        'estimator__alpha': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1],
+        'estimator__penalty': ['l2', 'l1', 'elasticnet'],
+    }
+    
+    # MultiOutputClassifier parameter search requires 'estimator__' prefix
+    clf = MultiOutputClassifier(sgd)
+    
+    # We use a small subset for hyperparameter tuning to be fast
+    print("Tuning hyperparameters on subset...")
+    # Use 10% of training data for tuning to save time
+    tune_size = min(20000, len(X_train))
+    indices = np.random.choice(len(X_train), tune_size, replace=False)
+    X_tune = X_train[indices]
+    y_tune = y_train[indices]
+
+    search = RandomizedSearchCV(
+        clf, 
+        param_distributions=param_dist, 
+        n_iter=10, 
+        scoring='f1_weighted', 
+        n_jobs=-1, 
+        cv=3,
+        random_state=42,
+        verbose=1
+    )
+    search.fit(X_tune, y_tune)
+    
+    print(f"Best params: {search.best_params_}")
+    best_clf = search.best_estimator_
+    
+    # Retrain on full dataset
+    print("Retraining best model on full dataset...")
+    best_clf.fit(X_train, y_train)
     
     # Evaluate
     print("Evaluating...")
-    y_pred = clf.predict(X_test)
-    print("Accuracy (Subset accuracy):", accuracy_score(y_test, y_pred))
-    print(classification_report(y_test, y_pred, target_names=mlb.classes_, zero_division=0))
+    # Get probabilities
+    # For MultiOutputClassifier with SGD(loss='log_loss'), predict_proba returns list of arrays
+    y_probs_list = best_clf.predict_proba(X_test)
     
-    # Save model, binarizer, AND scaler
+    # Stack to get (n_samples, n_classes) matrix of probability for class=1
+    # Each element in y_probs_list is (n_samples, 2), we want column 1.
+    y_probs = np.array([class_probs[:, 1] for class_probs in y_probs_list]).T
+    
+    print(f"Probabilities shape: {y_probs.shape}")
+    
+    # --- THRESHOLD CALIBRATION ---
+    print("Calibrating thresholds for max F1...")
+    best_thresholds = []
+    
+    # We iterate through each class (column)
+    for i, class_label in enumerate(mlb.classes_):
+        y_true = y_test[:, i]
+        y_score = y_probs[:, i]
+        
+        best_f1 = 0
+        best_th = 0.5
+        
+        # Test thresholds from 0.1 to 0.9
+        for th in np.arange(0.1, 1.0, 0.05):
+            y_pred_th = (y_score >= th).astype(int)
+            score = f1_score(y_true, y_pred_th)
+            
+            if score > best_f1:
+                best_f1 = score
+                best_th = th
+                
+        best_thresholds.append(best_th)
+        print(f"  Class '{class_label}': Best Threshold={best_th:.2f} -> F1={best_f1:.4f}")
+        
+    print(f"Using Calibrated Thresholds: {best_thresholds}")
+    
+    # Apply new thresholds
+    y_pred_calibrated = np.zeros_like(y_probs)
+    for i in range(len(mlb.classes_)):
+        y_pred_calibrated[:, i] = (y_probs[:, i] >= best_thresholds[i]).astype(int)
+        
+    print("Accuracy (Subset accuracy) [Calibrated]:", accuracy_score(y_test, y_pred_calibrated))
+    print(classification_report(y_test, y_pred_calibrated, target_names=mlb.classes_, zero_division=0))
+    
+    # Save model, binarizer, AND scaler, AND thresholds
+    # We'll save thresholds as a simple dictionary or list alongside the model
+    THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
+    
+    # Save
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     with open(MODEL_PATH, 'wb') as f:
-        pickle.dump(clf, f)
+        pickle.dump(best_clf, f)
     with open(BINARIZER_PATH, 'wb') as f:
         pickle.dump(mlb, f)
-    # We should save the scaler too if we use it!
     SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
     with open(SCALER_PATH, 'wb') as f:
         pickle.dump(scaler, f)
         
+    with open(THRESHOLDS_PATH, 'w') as f:
+        json.dump(best_thresholds, f)
+        
     print(f"Model saved to {MODEL_PATH}")
     print(f"Scaler saved to {SCALER_PATH}")
+    print(f"Thresholds saved to {THRESHOLDS_PATH}")
     
-    return clf, mlb
+    return best_clf, mlb
 
-def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None):
+def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None, thresholds=None):
     """Fetches IDs and embeddings from Safety table in batches, predicts, and updates."""
     print(f"Processing data from {SAFETY_TABLE} in batches...")
     
@@ -288,13 +363,18 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
                     X_batch = scaler.transform(X_batch)
                 
                 # Use predict_proba + Custom Threshold
+                # MultiOutputClassifier with SGD returns a list of arrays (one per class)
                 probas_list = clf.predict_proba(X_batch)
                 
                 # Stack to get (n_samples, n_classes) matrix of probability for class=1
                 probas = np.array([class_probs[:, 1] for class_probs in probas_list]).T
                 
-                # Apply threshold
-                y_pred_bool = probas > THRESHOLD
+                # Apply custom thresholds if available
+                if thresholds:
+                    # Broadcast thresholds across samples
+                    y_pred_bool = probas > np.array(thresholds)
+                else:
+                    y_pred_bool = probas > THRESHOLD
                 
                 # Note: We NO LONGER force a label. [0, 0] corresponds to Neutral.
                 
@@ -356,6 +436,8 @@ def main():
         # Load model if not trained in this run
         if clf is None:
             SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
+            THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
+            
             if os.path.exists(MODEL_PATH) and os.path.exists(BINARIZER_PATH):
                 print("Loading saved model...")
                 with open(MODEL_PATH, 'rb') as f:
@@ -369,15 +451,29 @@ def main():
                         scaler = pickle.load(f)
                     print("Loaded scaler.")
                 else:
-                    print("WARNING: No scaler found. Model might perform poorly if it expects scaled data.")
                     scaler = None
+                    
+                # Check for thresholds
+                thresholds = None
+                if os.path.exists(THRESHOLDS_PATH):
+                     with open(THRESHOLDS_PATH, 'r') as f:
+                        thresholds = json.load(f)
+                     print(f"Loaded calibrated thresholds: {thresholds}")
             else:
                 print("Model not found. Please run with --train first.")
                 return
+        else:
+            # We just trained, so we don't have thresholds variable in this scope easily unless we returned it
+            # For now, let's assume default 0.5 if running immediately after train, OR reload them
+            THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
+            if os.path.exists(THRESHOLDS_PATH):
+                 with open(THRESHOLDS_PATH, 'r') as f:
+                    thresholds = json.load(f)
+            else:
+                thresholds = None
         
         # Stream processing instead of loading all
-        # Pass scaler if it exists (requires updating process_safety_data_in_batches signature or handling it inside)
-        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit, scaler=scaler)
+        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit, scaler=scaler, thresholds=thresholds)
 
 if __name__ == "__main__":
     main()

@@ -17,9 +17,13 @@ progress.json
 
 # Ignore local data and outputs (we should fetch/generate these in the cloud)
 data/
+data/*
 outputs/
+outputs/*
 models/
+models/*
 logs/
+logs/*
 
 # Ignore secrets (NEVER bake secrets into the image)
 secrets.json
