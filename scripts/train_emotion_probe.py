@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from tqdm import tqdm
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import SGDClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.metrics import classification_report, accuracy_score
@@ -104,32 +104,32 @@ def fetch_goemotions_data(limit=None, use_cache=True):
         
     df['emotions_list'] = df['emotions'].apply(parse_emotions)
     
-    # --- SUPER-CLASS TRAINING (Positive / Negative / Ambiguous) ---
-    print("Mapping 28 Emotions to 3 Super-Classes (Positive, Negative, Ambiguous)...")
+    # --- SUPER-CLASS TRAINING (Positive / Negative) ---
+    print("Mapping 28 Emotions to 2 Binaries (Positive, Negative)...")
+    print("Note: 'Neutral' maps to [0,0] and 'Ambiguous' maps to [1,1]")
     
     # Define the Buckets
     POS_BUCKET = {"amusement", "excitement", "joy", "love", "desire", "optimism", "caring", "pride", "admiration", "gratitude", "relief", "approval"}
     NEG_BUCKET = {"fear", "nervousness", "remorse", "embarrassment", "disappointment", "sadness", "grief", "disgust", "anger", "annoyance", "disapproval"}
-    # Ambiguous includes 'neutral' and cognitive states
-    AMB_BUCKET = {"realization", "surprise", "curiosity", "confusion", "neutral"}
+    # Ambiguous emotions (high arousal, unclear valence) map to BOTH positive and negative
+    AMB_BUCKET = {"realization", "surprise", "curiosity", "confusion"}
+    # 'neutral' is excluded from all buckets -> [0, 0]
 
     def map_to_superclass(emotions_list):
-        # We want a dense target: [is_positive, is_negative, is_ambiguous]
-        # But MultiLabelBinarizer handles strings well. Let's return the list of applicable superclasses.
+        # We want to determine if 'positive' and 'negative' apply
         super_classes = set()
         
-        # Check for intersection
         emo_set = set(emotions_list)
         
-        if not emo_set.isdisjoint(POS_BUCKET):
+        # Check Positive
+        # Is positive if it has a positive emotion OR an ambiguous emotion
+        if not emo_set.isdisjoint(POS_BUCKET) or not emo_set.isdisjoint(AMB_BUCKET):
             super_classes.add("positive")
         
-        if not emo_set.isdisjoint(NEG_BUCKET):
+        # Check Negative
+        # Is negative if it has a negative emotion OR an ambiguous emotion
+        if not emo_set.isdisjoint(NEG_BUCKET) or not emo_set.isdisjoint(AMB_BUCKET):
             super_classes.add("negative")
-            
-        # If it has ambiguous labels OR if it has NO labels (default to ambiguous/neutral)
-        if not emo_set.isdisjoint(AMB_BUCKET) or len(super_classes) == 0:
-            super_classes.add("ambiguous")
             
         return list(super_classes)
         
@@ -155,6 +155,10 @@ def train_probe(df):
     y = mlb.fit_transform(df['emotions_list'])
     print(f"Classes found: {mlb.classes_}")
     
+    if len(mlb.classes_) == 0:
+        print("Error: No classes found in training data!")
+        return None, None
+
     # 2. Extract Features (large)
     # We use np.stack which creates a copy. 
     # To save memory, we can try to force it to release the dataframe memory immediately.
@@ -172,17 +176,37 @@ def train_probe(df):
     del X
     del y
     gc.collect()
+
+    # --- IMPROVEMENT: Standardization ---
+    from sklearn.preprocessing import StandardScaler
+    print("Scaling features...")
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
     
     print(f"Training Data Shape: {X_train.shape}")
-    print("Training MultiOutput Logistic Regression...")
+    print("Training MLP (Neural Network)...")
     
-    # Using SGDClassifier is much more memory efficient than lbfgs LogisticRegression
-    # 'log_loss' gives probabilistic output (logistic regression)
-    from sklearn.linear_model import SGDClassifier
+    from sklearn.neural_network import MLPClassifier
     
-    # SGD is much lighter on memory
-    # Increased max_iter for better convergence
-    clf = MultiOutputClassifier(SGDClassifier(loss='log_loss', max_iter=2000, random_state=42, n_jobs=-1, class_weight='balanced'))
+    # MLPClassifier natively supports multi-label classification
+    # We use 'early_stopping' to prevent overfitting
+    # 'adam' is generally good for large datasets
+    clf = MLPClassifier(
+        hidden_layer_sizes=(256, 128),
+        activation='relu',
+        solver='adam',
+        alpha=0.0001,
+        batch_size=256,
+        learning_rate='adaptive',
+        learning_rate_init=0.001,
+        max_iter=500,
+        early_stopping=True,
+        validation_fraction=0.1,
+        random_state=42,
+        verbose=True
+    )
+    
     clf.fit(X_train, y_train)
     
     # Evaluate
@@ -191,17 +215,23 @@ def train_probe(df):
     print("Accuracy (Subset accuracy):", accuracy_score(y_test, y_pred))
     print(classification_report(y_test, y_pred, target_names=mlb.classes_, zero_division=0))
     
-    # Save model and binarizer
+    # Save model, binarizer, AND scaler
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     with open(MODEL_PATH, 'wb') as f:
         pickle.dump(clf, f)
     with open(BINARIZER_PATH, 'wb') as f:
         pickle.dump(mlb, f)
+    # We should save the scaler too if we use it!
+    SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
+    with open(SCALER_PATH, 'wb') as f:
+        pickle.dump(scaler, f)
+        
     print(f"Model saved to {MODEL_PATH}")
+    print(f"Scaler saved to {SCALER_PATH}")
     
     return clf, mlb
 
-def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
+def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None):
     """Fetches IDs and embeddings from Safety table in batches, predicts, and updates."""
     print(f"Processing data from {SAFETY_TABLE} in batches...")
     
@@ -220,7 +250,6 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
     
     # --- Prediction Configuration ---
     # Custom threshold to avoid "zero-label" issue with MultiOutputClassifier.predict()
-    # For simplified sentiment (3-4 classes), we can use a higher threshold
     THRESHOLD = 0.5 
     
     from concurrent.futures import ThreadPoolExecutor
@@ -254,28 +283,20 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None):
                 # Predict
                 X_batch = np.stack(batch_df['embedding_vec'].values)
                 
-                # Use predict_proba + Custom Threshold instead of .predict()
-                # predict_proba returns a list of (n_samples, 2) arrays, one per class.
+                # Apply scaler if present
+                if scaler:
+                    X_batch = scaler.transform(X_batch)
+                
+                # Use predict_proba + Custom Threshold
                 probas_list = clf.predict_proba(X_batch)
                 
                 # Stack to get (n_samples, n_classes) matrix of probability for class=1
-                # Each element in probas_list is (n_samples, 2), we want column 1.
                 probas = np.array([class_probs[:, 1] for class_probs in probas_list]).T
                 
                 # Apply threshold
                 y_pred_bool = probas > THRESHOLD
                 
-                # --- SAFETY NET: Force at least one label if all below threshold ---
-                # Check for rows where ALL predictions are False (sum is 0)
-                empty_rows_mask = y_pred_bool.sum(axis=1) == 0
-                
-                if empty_rows_mask.any():
-                    # Get indices of the max probability for the empty rows
-                    max_indices = probas[empty_rows_mask].argmax(axis=1)
-                    
-                    # Set the corresponding class to True for those rows
-                    row_indices = np.where(empty_rows_mask)[0]
-                    y_pred_bool[row_indices, max_indices] = True
+                # Note: We NO LONGER force a label. [0, 0] corresponds to Neutral.
                 
                 # Inverse transform to get labels
                 y_labels = mlb.inverse_transform(y_pred_bool)
@@ -331,21 +352,32 @@ def main():
         
     # PREDICT PHASE
     if args.predict:
+        print("WARNING: Prediction tables may not be ready. Proceeding...")
         # Load model if not trained in this run
         if clf is None:
+            SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
             if os.path.exists(MODEL_PATH) and os.path.exists(BINARIZER_PATH):
                 print("Loading saved model...")
                 with open(MODEL_PATH, 'rb') as f:
                     clf = pickle.load(f)
                 with open(BINARIZER_PATH, 'rb') as f:
                     mlb = pickle.load(f)
+                
+                # Check for scaler
+                if os.path.exists(SCALER_PATH):
+                    with open(SCALER_PATH, 'rb') as f:
+                        scaler = pickle.load(f)
+                    print("Loaded scaler.")
+                else:
+                    print("WARNING: No scaler found. Model might perform poorly if it expects scaled data.")
+                    scaler = None
             else:
                 print("Model not found. Please run with --train first.")
                 return
         
         # Stream processing instead of loading all
-        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit)
+        # Pass scaler if it exists (requires updating process_safety_data_in_batches signature or handling it inside)
+        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit, scaler=scaler)
 
 if __name__ == "__main__":
     main()
-

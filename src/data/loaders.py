@@ -255,6 +255,10 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
     current_batch_rows = []
     total_chunks_yielded = 0
     
+    # Author tracking for cap
+    author_counts = {}
+    MAX_POSTS_PER_AUTHOR = 5
+
     for file_idx, file_path in enumerate(csv_files):
         # Stop if we hit the global limit
         if limit is not None and total_chunks_yielded >= limit:
@@ -323,6 +327,24 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
                 
                 # Get other fields - Raw data is expected to have these
                 author = str(row.get('author', 'unknown'))
+
+                # Author Cap Check (Prioritize Diversity)
+                # We check this BEFORE yielding but we must be careful:
+                # If we filter here, we save processing time.
+                if author != 'unknown':
+                    current_count = author_counts.get(author, 0)
+                    if current_count >= MAX_POSTS_PER_AUTHOR:
+                        continue # Skip power users / helpers
+                    
+                    # We increment here, assuming we will keep it. 
+                    # Note: Ideally we increment only if it passes downstream filters (date/content),
+                    # but incrementing here is safer to strictly limit *attempts* per author.
+                    # However, to be fair, let's increment only if we don't 'continue' immediately after.
+                    # But since this loop has multiple continues, let's increment now.
+                    # Actually, better to increment ONLY if we add it to the batch. 
+                    # BUT, for speed, checking here is fine. Let's act as if "seen" = "counted".
+                    author_counts[author] = current_count + 1
+
                 try:
                     created_utc = float(row.get('created_utc', 0.0))
                 except (ValueError, TypeError):
@@ -353,7 +375,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
                     })
                     chunk_order_id += 1
                     
-                        # YIELD BATCH IF FULL
+                    # YIELD BATCH IF FULL
                     if len(current_batch_rows) >= batch_size:
                         df_batch = pd.DataFrame(current_batch_rows)
                         
@@ -399,6 +421,17 @@ def load_reddit_mental_health_dataset():
 
 def load_reddit_control_dataset():
     """Loads and processes the Reddit control (safe) dataset from HuggingFace."""
+    # Check for cached parquet file
+    CACHE_FILE = "data/reddit_control_cache.parquet"
+    if os.path.exists(CACHE_FILE):
+        print(f"Found cached control dataset at {CACHE_FILE}. Loading...")
+        try:
+            df = pd.read_parquet(CACHE_FILE)
+            print(f"Loaded {len(df)} rows from cache.")
+            return df
+        except Exception as e:
+            print(f"Error loading cache: {e}. Reloading from source.")
+    
     print("Loading Reddit Control dataset (Safe Data)...")
     
     # Target approximately 60,000 samples per subreddit on average (Total ~3M target to land 1.5M actual)
@@ -476,7 +509,7 @@ def load_reddit_control_dataset():
     collected_data = {sub: [] for sub in TARGET_SUBREDDITS.keys()}
     # Track post counts per author to prevent power-user bias
     author_counts = {} 
-    MAX_POSTS_PER_AUTHOR = 3
+    MAX_POSTS_PER_AUTHOR = 5
     
     print("Streaming and filtering data (this may take a moment)...")
     
@@ -591,4 +624,13 @@ def load_reddit_control_dataset():
     )
     
     print(f"\nFinished processing Reddit Control dataset. Total rows: {len(df)}")
+    
+    # --- CACHE THE DATASET ---
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        df.to_parquet(CACHE_FILE)
+        print(f"Cached dataset to {CACHE_FILE}")
+    except Exception as e:
+        print(f"Warning: Could not cache dataset: {e}")
+
     return df
