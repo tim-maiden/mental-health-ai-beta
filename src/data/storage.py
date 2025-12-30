@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import time
 import ast
 import pandas as pd
 import numpy as np
@@ -73,44 +72,16 @@ def embed_and_upload_dataframe_in_batches(df: pd.DataFrame, table_name: str, bat
             print(f"Skipping batch {batch_number} as no embeddings were generated.")
             continue
 
-        # --- ROBUST UPLOAD WITH SUB-BATCHING & RETRIES ---
-        # Even if embedding batch is 500, we insert in chunks of 50 or 100 to avoid timeouts
-        INSERT_BATCH_SIZE = 100 
-        
-        all_inserted = True
-        
-        for j in range(0, len(records_to_insert), INSERT_BATCH_SIZE):
-            sub_batch = records_to_insert[j:j+INSERT_BATCH_SIZE]
-            
-            max_retries = 5
-            success = False
-            for attempt in range(max_retries):
-                try:
-                    supabase.table(table_name).insert(sub_batch).execute()
-                    success = True
-                    break
-                except Exception as e:
-                    print(f"\nError uploading sub-batch {j//INSERT_BATCH_SIZE + 1} of batch {batch_number} (Attempt {attempt+1}/{max_retries}): {e}")
-                    if attempt < max_retries - 1:
-                        sleep_time = 5 * (2 ** attempt) # 5, 10, 20, 40s
-                        print(f"Retrying in {sleep_time} seconds...")
-                        time.sleep(sleep_time)
-                    else:
-                        print(f"Max retries reached for sub-batch. Failing.")
-                        # We could choose to continue or fail hard. 
-                        # Failing hard is safer to avoid gaps in data if we are relying on offsets.
-                        all_inserted = False
-            
-            if not success:
-                break
-        
-        if not all_inserted:
-             print("Exiting script to prevent further errors. Please check the error and restart.")
-             sys.exit(1)
-
-        # Update and save progress after a successful batch upload
-        progress[table_name] = current_row_index + len(batch_df)
-        save_progress(progress)
+        try:
+            supabase.table(table_name).insert(records_to_insert).execute()
+            # Update and save progress after a successful batch upload
+            progress[table_name] = current_row_index + len(batch_df)
+            save_progress(progress)
+        except Exception as e:
+            print(f"Error inserting batch {batch_number} into {table_name}. Error: {e}")
+            # Stop execution on error to avoid inconsistent progress
+            print("Exiting script to prevent further errors. Please check the error and restart.")
+            sys.exit(1)
 
 def process_embedding_str(x):
     """Converts string representation of list to numpy array."""
