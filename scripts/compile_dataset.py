@@ -175,26 +175,101 @@ def main():
     target_safe_count = risk_count * 5
     print(f"Target Safe Count: {target_safe_count} (Risk Count: {risk_count})")
     
-    # 2. Prioritize Hard Negatives (Keep ALL of them for boundary definition)
-    # These are the most valuable samples.
-    safe_hard_sampled = safe_hard_negatives
+    # 2. Prioritize Hard Negatives (Density-Based)
+    # These are semantically close to risk (e.g. "I lost my job")
+    safe_density_negatives = safe_hard_negatives
     
-    # 3. Fill Remainder with Prototypes
-    needed_prototypes = target_safe_count - len(safe_hard_sampled)
+    # 3. Prioritize Sentiment Hard Negatives (Probe-Based)
+    # These are linguistically sad but semantically distinct (e.g. "I hate this movie")
     
-    if needed_prototypes > 0:
-        # Sample from the prototypes to fill the quota
-        # If we had emotion labels, we would prioritize "Joy/Optimism" here.
-        # Since we don't (or choose not to use them), random sampling is the next best thing.
-        if len(safe_prototypes) > needed_prototypes:
-            safe_proto_sampled = safe_prototypes.sample(n=needed_prototypes, random_state=42)
-        else:
-            safe_proto_sampled = safe_prototypes
-    else:
-        # Rare case where we have huge number of hard negatives
-        safe_proto_sampled = pd.DataFrame() 
+    # Calculate scores for all prototypes
+    def get_emotion_score(row, target):
+        scores = row.get('emotion_scores', {})
+        # Handle if scores is a string (JSON string) or dict
+        if isinstance(scores, str):
+            import json
+            try:
+                scores = json.loads(scores)
+            except:
+                scores = {}
+                
+        if isinstance(scores, dict):
+            return float(scores.get(target, 0.0))
+            
+        # Fallback to boolean labels if scores missing (legacy)
+        ems = row.get('predicted_emotions', [])
+        if isinstance(ems, list) and target in ems: return 1.0
+        return 0.0
 
-    safe_combined = pd.concat([safe_proto_sampled, safe_hard_sampled])
+    safe_prototypes['neg_score'] = safe_prototypes.apply(lambda x: get_emotion_score(x, 'negative'), axis=1)
+    safe_prototypes['pos_score'] = safe_prototypes.apply(lambda x: get_emotion_score(x, 'positive'), axis=1)
+
+    # Filter candidates (using a loose threshold since we will sort by score)
+    safe_sentiment_negatives = safe_prototypes[safe_prototypes['neg_score'] > 0.5]
+    safe_positives = safe_prototypes[safe_prototypes['pos_score'] > 0.5]
+
+    # 4. Fill the Quota
+    # Strategy: 
+    # - Keep ALL Density Negatives (Highest Value)
+    # - Fill 40% of remainder with Sentiment Negatives (Best First)
+    # - Fill 40% of remainder with Positives (Best First)
+    # - Fill rest with Random Neutral
+    
+    selected_safes = [safe_density_negatives]
+    # Use index for tracking unique items to avoid duplicates
+    selected_indices = set(safe_density_negatives.index)
+    
+    current_count = len(safe_density_negatives)
+    remaining_quota = target_safe_count - current_count
+    
+    if remaining_quota > 0:
+        # Target Sub-Quotas
+        target_sent_neg = int(remaining_quota * 0.4)
+        target_pos = int(remaining_quota * 0.4)
+        
+        # Sample Sentiment Negatives (excluding already selected)
+        avail_sent_neg = safe_sentiment_negatives[~safe_sentiment_negatives.index.isin(selected_indices)]
+        
+        if len(avail_sent_neg) > target_sent_neg:
+            # Pick TOP SCORES
+            picked = avail_sent_neg.nlargest(target_sent_neg, 'neg_score')
+            if picked['neg_score'].nunique() == 1:
+                 picked = picked.sample(frac=1, random_state=42) # Shuffle if ties
+            
+            selected_safes.append(picked)
+            selected_indices.update(picked.index)
+            remaining_quota -= target_sent_neg
+        else:
+            selected_safes.append(avail_sent_neg)
+            selected_indices.update(avail_sent_neg.index)
+            remaining_quota -= len(avail_sent_neg)
+            
+        # Sample Positives (excluding already selected)
+        avail_pos = safe_positives[~safe_positives.index.isin(selected_indices)]
+        
+        if len(avail_pos) > target_pos:
+            # Pick TOP SCORES
+            picked = avail_pos.nlargest(target_pos, 'pos_score')
+            if picked['pos_score'].nunique() == 1:
+                 picked = picked.sample(frac=1, random_state=42) # Shuffle if ties
+                 
+            selected_safes.append(picked)
+            selected_indices.update(picked.index)
+            remaining_quota -= target_pos
+        else:
+            selected_safes.append(avail_pos)
+            selected_indices.update(avail_pos.index)
+            remaining_quota -= len(avail_pos)
+            
+        # Fill rest with Random (Neutral/Ambiguous)
+        pool_remainder = safe_prototypes[~safe_prototypes.index.isin(selected_indices)]
+        
+        if len(pool_remainder) > remaining_quota:
+             selected_safes.append(pool_remainder.sample(n=remaining_quota, random_state=42))
+        else:
+             selected_safes.append(pool_remainder)
+
+    safe_combined = pd.concat(selected_safes).drop_duplicates()
     
     # Combine Final
     final_train = pd.concat([

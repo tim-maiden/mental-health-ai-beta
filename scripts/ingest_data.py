@@ -26,7 +26,7 @@ def main():
     
     print(f"Fetching from {CONTROL_TABLE}...")
     # Control table has predicted_emotions for hard negative sampling
-    df_control = fetch_data(CONTROL_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id", "predicted_emotions"])
+    df_control = fetch_data(CONTROL_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id", "predicted_emotions", "emotion_scores"])
     df_control['dataset_type'] = CONTROL_TABLE
     
     # 2. Combine
