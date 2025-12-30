@@ -82,16 +82,11 @@ def main():
         current_offset = 0
         
         # Adjust batch size for memory safety (e.g. 5000 chunks)
-        # UPDATED: Use sampling to reduce dataset size.
-        # User clarification: Total yearly volume is approx 3.6M chunks.
-        # Target: ~500k-750k chunks.
-        # Rate: With Author Cap of 5 applied, we should increase rate to ensure we get enough data.
-        # Let's bump to 0.25 (25%) to be safe, relying on the hard limit.
-        # RE-UPDATED: Raised limit to 1.25M to ensuring full alphabetical coverage (avoiding bias against 'Z' topics)
-        # FIXED: Reverting to sample_rate=1.0 to resume upload of existing 1M stream.
+        # Sampling to reduce dataset size.
+        # Limit at 1.25M to ensure full alphabetical coverage
         generator = yield_reddit_mental_health_dataset(
             batch_size=5000,
-            sample_rate=1.0,
+            sample_rate=0.25,
             limit=1250000
         )
         
