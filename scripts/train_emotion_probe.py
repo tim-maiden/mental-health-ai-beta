@@ -210,7 +210,7 @@ def train_probe(df):
 
 def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None):
     """Fetches IDs and embeddings, predicts granular probs, aggregates (Late Fusion), and updates."""
-    print(f"Processing data from {SAFETY_TABLE} in batches (Late Fusion)...")
+    print(f"Processing data from {SAFETY_TABLE} in batches (Cursor Pagination / Late Fusion)...")
     
     # Get indices for our buckets
     pos_indices = [i for i, label in enumerate(mlb.classes_) if label in POSITIVE_EMOTIONS]
@@ -219,8 +219,8 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
     print(f"Positive Indices: {pos_indices} (Labels: {[mlb.classes_[i] for i in pos_indices]})")
     print(f"Negative Indices: {neg_indices} (Labels: {[mlb.classes_[i] for i in neg_indices]})")
 
-    offset = 0
-    processed_count = 0
+    last_id = 0
+    total_processed = 0
     
     # Stats counters
     stats = {"positive": 0, "negative": 0, "neutral": 0}
@@ -239,14 +239,27 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
 
     while True:
         try:
-            print(f"Fetching batch (offset={offset})...")
-            r = supabase.table(SAFETY_TABLE).select("id, embedding").range(offset, offset + batch_size - 1).execute()
+            print(f"Fetching batch (id > {last_id})...")
+            
+            # Cursor pagination: Order by ID, filter > last_id
+            r = supabase.table(SAFETY_TABLE)\
+                .select("id, embedding")\
+                .order("id", desc=False)\
+                .gt("id", last_id)\
+                .limit(batch_size)\
+                .execute()
+                
             data = r.data
             
             if not data:
+                print("No more data returned from Supabase.")
                 break
                 
             batch_df = pd.DataFrame(data)
+            
+            # Update Cursor immediately for next loop
+            last_id = batch_df['id'].max()
+            
             batch_df['embedding_vec'] = batch_df['embedding'].apply(process_embedding_str)
             batch_df = batch_df.dropna(subset=['embedding_vec'])
             
@@ -299,15 +312,15 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     list(executor.map(push_update, updates))
             
-            offset += len(data)
-            processed_count += len(data)
+            total_processed += len(data)
             
             import gc
             del data
             del batch_df
             gc.collect()
             
-            if limit and processed_count >= limit:
+            if limit and total_processed >= limit:
+                print(f"Hit limit of {limit} rows.")
                 break
                 
         except Exception as e:
