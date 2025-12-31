@@ -140,7 +140,7 @@ def train_probe(df):
     with open(BINARIZER_PATH, 'wb') as f: pickle.dump(mlb, f)
     with open(os.path.join(MODELS_DIR, "emotion_scaler.pkl"), 'wb') as f: pickle.dump(scaler, f)
         
-    return clf, mlb, scaler, scaler
+    return clf, mlb, scaler
 
 def process_data_in_batches(target_table, clf, mlb, batch_size=2000, limit=None, scaler=None):
     print(f"Processing data from {target_table} in batches (Cursor Pagination + Late Fusion)...")
