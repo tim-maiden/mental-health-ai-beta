@@ -9,8 +9,9 @@ from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
-from sklearn.metrics import classification_report, accuracy_score, f1_score, precision_score
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
+from concurrent.futures import ThreadPoolExecutor
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -24,6 +25,22 @@ SAFETY_TABLE = "reddit_safe_embeddings"
 MODEL_PATH = os.path.join(MODELS_DIR, "emotion_probe.pkl")
 BINARIZER_PATH = os.path.join(MODELS_DIR, "emotion_binarizer.pkl")
 CACHE_PATH = os.path.join(DATA_DIR, "goemotions_cache.pkl")
+
+# --- EMOTION DEFINITIONS (Granular) ---
+# High-energy, unambiguous positive emotions
+POSITIVE_EMOTIONS = {
+    "joy", "love", "excitement", "admiration", "optimism", 
+    "pride", "amusement", "gratitude"
+}
+
+# Clear negative emotions (excluding subtle ones like confusion)
+NEGATIVE_EMOTIONS = {
+    "sadness", "grief", "anger", "fear", "nervousness", 
+    "remorse", "disgust", "annoyance", "disappointment"
+}
+
+# We will train on the UNION of these two sets.
+TARGET_EMOTIONS = list(POSITIVE_EMOTIONS.union(NEGATIVE_EMOTIONS))
 
 def process_embedding_str(x):
     """Converts string representation of list to numpy array."""
@@ -83,19 +100,15 @@ def fetch_goemotions_data(limit=None, use_cache=True):
     print("Processing labels...")
     def parse_emotions(x):
         if isinstance(x, str):
-            # Check if it's double-encoded JSON (e.g. '"[\"joy\"]"')
             try:
-                # First load
                 loaded = json.loads(x)
                 if isinstance(loaded, str):
-                     # Try loading again if it's still a string
                      try:
                          return json.loads(loaded)
                      except:
                          return [loaded] if loaded else []
                 return loaded if isinstance(loaded, list) else []
             except:
-                # If json load fails, maybe it's just a string like "['joy']" that needs ast.literal_eval
                 try:
                     return ast.literal_eval(x)
                 except:
@@ -104,38 +117,23 @@ def fetch_goemotions_data(limit=None, use_cache=True):
         
     df['emotions_list'] = df['emotions'].apply(parse_emotions)
     
-    # --- MULTI-LABEL TRAINING (2 Independent Binaries) ---
-    print("Mapping Emotions to 2 Independent Binaries: Positive, Negative (Ambiguous dropped)...")
+    # --- GRANULAR FILTERING ---
+    print("Filtering for Target Granular Emotions...")
+    target_set = set(TARGET_EMOTIONS)
     
-    # Define the Buckets (Tightened for High Precision)
-    # POS_BUCKET: High-energy, unambiguous positive emotions only.
-    # Removed: approval (neutral), relief (context dependent), desire (ambiguous), caring/admiration (can be used in sad contexts)
-    POS_BUCKET = {"amusement", "excitement", "joy", "love", "optimism", "pride", "gratitude"}
+    def filter_emotions(emotions_list):
+        # Keep only emotions in our target list
+        return [e for e in emotions_list if e in target_set]
+        
+    df['emotions_list'] = df['emotions_list'].apply(filter_emotions)
     
-    # NEG_BUCKET: Dysphoric emotions
-    NEG_BUCKET = {"fear", "nervousness", "remorse", "embarrassment", "disappointment", "sadness", "grief", "disgust", "anger", "annoyance", "disapproval"}
-    # AMB_BUCKET dropped as requested
-    
-    def map_to_multilabels(emotions_list):
-        labels = set()
-        emo_set = set(emotions_list)
-        
-        # Check Positive
-        if not emo_set.isdisjoint(POS_BUCKET):
-            labels.add("positive")
-        
-        # Check Negative
-        if not emo_set.isdisjoint(NEG_BUCKET):
-            labels.add("negative")
-            
-        # Ambiguous is now implicit "background" (empty set) if neither pos nor neg
-            
-        return list(labels)
-        
-    df['emotions_list'] = df['emotions_list'].apply(map_to_multilabels)
+    # Drop rows with no relevant emotions
+    df = df[df['emotions_list'].map(len) > 0]
     
     # Drop invalid rows
     df = df.dropna(subset=['embedding_vec'])
+    
+    print(f"Filtered DataFrame Size: {len(df)} rows")
     
     # Save to cache if full fetch
     if use_cache and limit is None:
@@ -146,13 +144,13 @@ def fetch_goemotions_data(limit=None, use_cache=True):
     return df
 
 def train_probe(df):
-    """Trains a multi-label Logistic Regression classifier."""
+    """Trains a multi-label Logistic Regression classifier on granular emotions."""
     print("Preparing training data...")
     
     # 1. Extract Labels
     mlb = MultiLabelBinarizer()
     y = mlb.fit_transform(df['emotions_list'])
-    print(f"Classes found: {mlb.classes_}")
+    print(f"Classes found ({len(mlb.classes_)}): {mlb.classes_}")
     
     # 2. Extract Features
     X = np.stack(df['embedding_vec'].values)
@@ -176,13 +174,12 @@ def train_probe(df):
     X_test = scaler.transform(X_test)
     
     print(f"Training Data Shape: {X_train.shape}")
-    print("Training Logistic Regression (OneVsRest)...")
+    print("Training Granular Logistic Regression (OneVsRest)...")
     
-    # Use OneVsRest with Logistic Regression for high-precision independent classifiers
-    # class_weight='balanced' helps with prevalence issues, but we will tune thresholds manually
+    # Use OneVsRest with Logistic Regression
     base_clf = LogisticRegression(
         solver='lbfgs',
-        class_weight='balanced',
+        class_weight=None,
         max_iter=1000,
         random_state=42,
         verbose=1
@@ -193,54 +190,9 @@ def train_probe(df):
     
     # Evaluate
     print("Evaluating...")
-    # Get probabilities
-    y_probs = clf.predict_proba(X_test)
-    
-    # --- THRESHOLD CALIBRATION (Optimized for Precision) ---
-    print("Calibrating thresholds for High Precision (Target > 0.8)...")
-    best_thresholds = []
-    
-    # Iterate through classes
-    for i, class_label in enumerate(mlb.classes_):
-        y_true = y_test[:, i]
-        y_score = y_probs[:, i]
-        
-        best_th = 0.5
-        target_precision = 0.75  # Relaxed to 0.75 for better recall/balance
-        found_high_precision = False
-        
-        # Scan thresholds from 0.5 to 0.99
-        print(f"  Scanning class '{class_label}':")
-        for th in np.arange(0.5, 0.99, 0.01):
-            y_pred_th = (y_score >= th).astype(int)
-            
-            if np.sum(y_pred_th) == 0:
-                continue 
-            
-            prec = precision_score(y_true, y_pred_th, zero_division=0)
-            rec = 0 # Calculate recall only if needed for debug, speed up loop
-            
-            if prec >= target_precision:
-                best_th = th
-                found_high_precision = True
-                print(f"    -> Found Precision {prec:.4f} at Threshold {th:.2f}")
-                break 
-        
-        if not found_high_precision:
-            print(f"    -> Could not reach target precision 0.8. Using 0.9 as fallback safe threshold.")
-            best_th = 0.90
-            
-        best_thresholds.append(best_th)
-        
-    print(f"Using Calibrated Thresholds: {best_thresholds}")
-    
-    # Apply thresholds
-    y_pred_calibrated = np.zeros_like(y_probs)
-    for i in range(len(mlb.classes_)):
-        y_pred_calibrated[:, i] = (y_probs[:, i] >= best_thresholds[i]).astype(int)
-
-    print("Accuracy (Subset accuracy):", accuracy_score(y_test, y_pred_calibrated))
-    print(classification_report(y_test, y_pred_calibrated, target_names=mlb.classes_, zero_division=0))
+    y_pred = clf.predict(X_test)
+    print("Accuracy (Subset accuracy):", accuracy_score(y_test, y_pred))
+    print(classification_report(y_test, y_pred, target_names=mlb.classes_, zero_division=0))
     
     # Save
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
@@ -251,65 +203,50 @@ def train_probe(df):
     SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
     with open(SCALER_PATH, 'wb') as f:
         pickle.dump(scaler, f)
-    THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
-    with open(THRESHOLDS_PATH, 'w') as f:
-        json.dump(best_thresholds, f)
         
     print(f"Model saved to {MODEL_PATH}")
     
     return clf, mlb
 
-def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None, thresholds=None):
-    """Fetches IDs and embeddings from Safety table in batches using Cursor Pagination, predicts, and updates."""
-    print(f"Processing data from {SAFETY_TABLE} in batches (Cursor Pagination)...")
+def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler=None):
+    """Fetches IDs and embeddings, predicts granular probs, aggregates (Late Fusion), and updates."""
+    print(f"Processing data from {SAFETY_TABLE} in batches (Late Fusion)...")
     
-    # Check total count for info
-    count_query = supabase.table(SAFETY_TABLE).select("id", count="exact").limit(1)
-    try:
-        res = count_query.execute()
-        total_rows = res.count
-        print(f"Total rows to process: {total_rows}")
-    except:
-        total_rows = None
+    # Get indices for our buckets
+    pos_indices = [i for i, label in enumerate(mlb.classes_) if label in POSITIVE_EMOTIONS]
+    neg_indices = [i for i, label in enumerate(mlb.classes_) if label in NEGATIVE_EMOTIONS]
+    
+    print(f"Positive Indices: {pos_indices} (Labels: {[mlb.classes_[i] for i in pos_indices]})")
+    print(f"Negative Indices: {neg_indices} (Labels: {[mlb.classes_[i] for i in neg_indices]})")
 
-    last_id = 0
-    total_processed = 0
-    from concurrent.futures import ThreadPoolExecutor
+    offset = 0
+    processed_count = 0
+    
+    # Stats counters
+    stats = {"positive": 0, "negative": 0, "neutral": 0}
 
     def push_update(item):
         try:
+            # Update predicted_emotions (array) and emotion_scores (jsonb)
+            # We keep emotion_scores for debugging/sampling if needed, though simpler now
             supabase.table(SAFETY_TABLE).update({
                 "predicted_emotions": item["predicted_emotions"],
                 "emotion_scores": item["emotion_scores"]
             }).eq("id", item["id"]).execute()
             return True
         except Exception as e:
-            # print(f"Update failed: {e}")
             return False
 
     while True:
         try:
-            print(f"Fetching batch (id > {last_id})...")
-            
-            # Cursor pagination: Order by ID, filter > last_id
-            r = supabase.table(SAFETY_TABLE)\
-                .select("id, embedding")\
-                .order("id", desc=False)\
-                .gt("id", last_id)\
-                .limit(batch_size)\
-                .execute()
-            
+            print(f"Fetching batch (offset={offset})...")
+            r = supabase.table(SAFETY_TABLE).select("id, embedding").range(offset, offset + batch_size - 1).execute()
             data = r.data
             
             if not data:
-                print("No more data returned from Supabase.")
                 break
                 
             batch_df = pd.DataFrame(data)
-            
-            # Update Cursor immediately for next loop
-            last_id = batch_df['id'].max()
-
             batch_df['embedding_vec'] = batch_df['embedding'].apply(process_embedding_str)
             batch_df = batch_df.dropna(subset=['embedding_vec'])
             
@@ -318,27 +255,43 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
                 if scaler:
                     X_batch = scaler.transform(X_batch)
                 
-                # Predict Probabilities
+                # Predict raw probabilities for all 17+ classes
                 probas = clf.predict_proba(X_batch)
                 
-                # Apply Thresholds
-                if thresholds:
-                     y_pred_bool = probas > np.array(thresholds)
-                else:
-                     y_pred_bool = probas > 0.5
+                # --- LATE FUSION AGGREGATION ---
+                # Use np.max instead of np.sum to enforce single-emotion confidence
+                pos_scores = np.max(probas[:, pos_indices], axis=1)
+                neg_scores = np.max(probas[:, neg_indices], axis=1)
                 
-                y_labels = mlb.inverse_transform(y_pred_bool)
+                # Apply Thresholds (High purity requirement)
+                THRESHOLD = 0.90
                 
                 updates = []
-                classes = mlb.classes_
                 
                 for idx, row in batch_df.iterrows():
-                    # Create scores dict
-                    scores = {cls: float(probas[idx][i]) for i, cls in enumerate(classes)}
+                    labels = []
+                    p_score = pos_scores[idx]
+                    n_score = neg_scores[idx]
+                    
+                    if p_score >= THRESHOLD:
+                        labels.append("positive")
+                        stats["positive"] += 1
+                    if n_score >= THRESHOLD:
+                        labels.append("negative")
+                        stats["negative"] += 1
+                    
+                    if not labels:
+                        stats["neutral"] += 1
+
+                    # Store scores for "Top N" sampling later
+                    scores = {
+                        "positive": float(p_score),
+                        "negative": float(n_score)
+                    }
                     
                     updates.append({
                         "id": row['id'],
-                        "predicted_emotions": list(y_labels[idx]),
+                        "predicted_emotions": labels,
                         "emotion_scores": scores
                     })
                 
@@ -346,20 +299,22 @@ def process_safety_data_in_batches(clf, mlb, batch_size=2000, limit=None, scaler
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     list(executor.map(push_update, updates))
             
-            total_processed += len(data)
+            offset += len(data)
+            processed_count += len(data)
             
             import gc
             del data
             del batch_df
             gc.collect()
             
-            if limit and total_processed >= limit:
-                print(f"Hit limit of {limit} rows.")
+            if limit and processed_count >= limit:
                 break
                 
         except Exception as e:
             print(f"Error in batch processing: {e}")
             break
+            
+    print(f"\nFinal Batch Stats: Positive: {stats['positive']}, Negative: {stats['negative']}, Neutral/Ambiguous: {stats['neutral']}")
 
 def main():
     import argparse
@@ -386,7 +341,6 @@ def main():
         # Load model if not trained in this run
         if clf is None:
             SCALER_PATH = os.path.join(MODELS_DIR, "emotion_scaler.pkl")
-            THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
             
             if os.path.exists(MODEL_PATH) and os.path.exists(BINARIZER_PATH):
                 print("Loading saved model...")
@@ -402,27 +356,12 @@ def main():
                     print("Loaded scaler.")
                 else:
                     scaler = None
-                    
-                # Check for thresholds
-                thresholds = None
-                if os.path.exists(THRESHOLDS_PATH):
-                     with open(THRESHOLDS_PATH, 'r') as f:
-                        thresholds = json.load(f)
-                     print(f"Loaded calibrated thresholds: {thresholds}")
             else:
                 print("Model not found. Please run with --train first.")
                 return
-        else:
-            # We just trained
-            THRESHOLDS_PATH = os.path.join(MODELS_DIR, "emotion_thresholds.json")
-            if os.path.exists(THRESHOLDS_PATH):
-                 with open(THRESHOLDS_PATH, 'r') as f:
-                    thresholds = json.load(f)
-            else:
-                thresholds = None
         
         # Stream processing instead of loading all
-        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit, scaler=scaler, thresholds=thresholds)
+        process_safety_data_in_batches(clf, mlb, batch_size=1000, limit=args.limit, scaler=scaler)
 
 if __name__ == "__main__":
     main()
