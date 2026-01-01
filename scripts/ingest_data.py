@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from src.data.storage import fetch_data
+from src.data.storage import fetch_data_parallel
 from src.config import RAW_DATA_FILE, SNAPSHOTS_DIR, S3_BUCKET_NAME
 
 # Constants
@@ -20,12 +20,20 @@ def main():
     # 1. Fetch Data
     print(f"Fetching from {REDDIT_TABLE}...")
     # Added 'author' as required for train/test split
-    df_risk = fetch_data(REDDIT_TABLE, columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"])
+    df_risk = fetch_data_parallel(
+        REDDIT_TABLE, 
+        columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"],
+        num_workers=30
+    )
     df_risk['dataset_type'] = REDDIT_TABLE
     
     print(f"Fetching from {CONTROL_TABLE}...")
     # Added 'author'
-    df_control = fetch_data(CONTROL_TABLE, columns=["subreddit", "embedding", "input", "post_id", "author", "predicted_emotions", "emotion_scores"])
+    df_control = fetch_data_parallel(
+        CONTROL_TABLE, 
+        columns=["subreddit", "embedding", "input", "post_id", "author", "predicted_emotions", "emotion_scores"],
+        num_workers=30
+    )
     df_control['dataset_type'] = CONTROL_TABLE
     
     # 2. Combine
