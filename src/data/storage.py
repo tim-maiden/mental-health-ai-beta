@@ -106,9 +106,12 @@ def process_embedding_str(x):
         except (ValueError, SyntaxError):
             return None
 
-def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=None):
+def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=None, callback=None):
     """Fetches data from a Supabase table using efficient cursor-based pagination.
     Supports optional start_id and end_id for parallel chunking.
+    
+    Args:
+        callback (callable): If provided, called with each page (df) immediately.
     """
     if start_id is None:
         print(f"Fetching all data from {table_name}...")
@@ -162,17 +165,49 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
                 print(f"   -> No more data found (Last ID: {last_id}).")
             break
             
-        all_data.extend(data)
+        # --- STREAMING MODE ---
+        if callback:
+            # Process strictly this page
+            df_page = pd.DataFrame(data)
+            
+            # Helper to process vectors
+            if 'embedding' in df_page.columns and not df_page.empty:
+                raw_values = df_page['embedding'].values
+                processed_values = [process_embedding_str(x) for x in raw_values]
+                df_page['embedding_vec'] = processed_values
+                df_page = df_page.dropna(subset=['embedding_vec'])
+            
+            if 'subreddit' in df_page.columns:
+                df_page['clean_subreddit'] = df_page['subreddit'].astype(str).str.strip()
+                
+            df_page['dataset_type'] = table_name
+            
+            # Yield to callback immediately
+            callback(df_page)
+            
+            # Clear memory references
+            del df_page
+            del data
+        else:
+            # --- ACCUMULATION MODE (Legacy) ---
+            all_data.extend(data)
         
-        # Update cursor
-        # Assumes 'id' is in the response and is sortable (int)
-        last_id = data[-1]['id']
-        total_fetched += len(data)
+        # Update cursor (if callback, data is deleted, so we need to rely on response object if possible or temp store)
+        # Actually data is deleted from scope but `response.data` persists until next loop
+        # Wait, I deleted `data`. Let's save last_id first.
+        # Re-fetch last_id from the response directly before deleting
+        last_id = response.data[-1]['id'] 
+        
+        total_fetched += len(response.data)
         
         # Print progress every ~10k rows
         if total_fetched % (fetch_size * 5) == 0:
              worker_tag = f"[Range start {start_id}]" if start_id else "[Single Thread]"
              print(f"   -> {worker_tag} Fetched {total_fetched} rows so far (Current ID: {last_id})...")
+
+    # Only return if NOT streaming
+    if callback:
+        return pd.DataFrame() # Empty DF
 
     # Only print this for single-threaded calls (fetch_data), parallel workers are silent to avoid spam
     if start_id is None:
@@ -180,7 +215,7 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
     
     df = pd.DataFrame(all_data)
     
-    # Process embeddings
+    # Process embeddings (Bulk mode)
     if 'embedding' in df.columns and not df.empty:
         # Use a simpler message for parallel workers
         if start_id is None:
@@ -279,7 +314,7 @@ def fetch_data_parallel(table_name, columns=None, num_workers=30, chunk_callback
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         # Map ranges to futures
         future_to_range = {
-            executor.submit(fetch_data, table_name, 2000, columns, r[0], r[1]): r 
+            executor.submit(fetch_data, table_name, 2000, columns, r[0], r[1], chunk_callback): r 
             for r in ranges
         }
         
@@ -289,8 +324,9 @@ def fetch_data_parallel(table_name, columns=None, num_workers=30, chunk_callback
                 df_chunk = future.result()
                 
                 if chunk_callback:
-                    chunk_callback(df_chunk)
-                    # Don't store in results to save memory
+                    # Callback is handled internally by fetch_data, 
+                    # so future.result() returns empty DF.
+                    pass 
                 else:
                     results.append(df_chunk)
                     
