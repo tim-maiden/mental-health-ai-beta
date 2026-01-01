@@ -2,12 +2,12 @@ import os
 import sys
 import json
 import ast
-import requests
-import io
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from src.config import PROGRESS_FILE, BATCH_SIZE, SUPABASE_URL, SUPABASE_KEY
+import math
+import concurrent.futures
+from src.config import PROGRESS_FILE, BATCH_SIZE
 from src.core.clients import supabase
 from src.services.embeddings import embed_dataframe
 
@@ -104,66 +104,177 @@ def process_embedding_str(x):
         except (ValueError, SyntaxError):
             return None
 
-def fetch_data(table_name, columns=None):
+def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=None):
+    """Fetches data from a Supabase table using efficient cursor-based pagination.
+    Supports optional start_id and end_id for parallel chunking.
     """
-    Fetches data as CSV directly from Supabase.
-    ~10x faster than JSON loop because it avoids Python-side JSON parsing.
-    """
-    print(f"Fetching {table_name} as CSV stream...")
-    
-    # Construct the URL
-    url = f"{SUPABASE_URL}/rest/v1/{table_name}"
-    
-    # Select specific columns if requested
-    params = {}
-    if columns:
-        params['select'] = ",".join(columns)
+    if start_id is None:
+        print(f"Fetching all data from {table_name}...")
     else:
-        params['select'] = "*"
-        
-    # Headers: Request CSV format
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Accept": "text/csv" # CRITICAL: Tells Supabase to send CSV
-    }
+        # Minimal logging for parallel workers
+        pass 
     
-    # Stream the request
-    # This keeps memory usage low during the download
-    with requests.get(url, headers=headers, params=params, stream=True) as r:
-        r.raise_for_status()
-        
-        # Read the CSV directly from the raw socket stream
-        # low_memory=False ensures pandas guesses types accurately for large files
-        df = pd.read_csv(r.raw, low_memory=False)
-        
-    # --- Post-Processing ---
+    # If columns are not specified, default to this set
+    if columns is None:
+        columns = ["subreddit", "embedding", "input", "post_id", "chunk_id"]
     
-    # Fix Postgres Array format: "{0.1,0.2}" -> np.array([0.1, 0.2])
-    # Supabase CSV exports arrays as strings like "{value,value}"
-    if 'embedding' in df.columns:
-        print("Processing embeddings...")
+    # We MUST fetch 'id' for cursor pagination to work reliably
+    query_columns = list(set(columns + ["id"]))
+    select_str = ", ".join(query_columns)
+    
+    all_data = []
+    # Initialize cursor. If start_id provided, start just before it.
+    last_id = (start_id - 1) if start_id is not None else 0
+    total_fetched = 0
+    
+    while True:
+        # Use ID-based cursor pagination (O(1) vs O(N) for offset)
+        # Select rows where id > last_id
+        query = supabase.table(table_name).select(select_str)
         
-        # Optimized parser for Postgres array format
-        def parse_pg_array(x):
-            if isinstance(x, str) and x.startswith('{') and x.endswith('}'):
-                # Strip braces and split by comma
-                # This is much faster than ast.literal_eval or json.loads for this specific format
-                try:
-                    return np.fromstring(x[1:-1], sep=',', dtype=np.float32)
-                except ValueError:
-                    return None
-            return None
+        # Order by ID to ensure we move forward correctly
+        filter_builder = query.order("id", desc=False).gt("id", last_id)
+        
+        # Apply end_id cap if provided
+        if end_id is not None:
+            filter_builder = filter_builder.lte("id", end_id)
+            
+        response = filter_builder.limit(fetch_size).execute()
+        
+        data = response.data
+        if not data:
+            if start_id is None:
+                print(f"   -> No more data found (Last ID: {last_id}).")
+            break
+            
+        all_data.extend(data)
+        
+        # Update cursor
+        # Assumes 'id' is in the response and is sortable (int)
+        last_id = data[-1]['id']
+        total_fetched += len(data)
+        
+        if start_id is None and total_fetched % (fetch_size * 10) == 0:
+             print(f"   -> Fetched {total_fetched} rows so far (Last ID: {last_id})...")
+    
+    if start_id is None:
+        print(f"\nTotal rows from {table_name}: {len(all_data)}")
+    
+    df = pd.DataFrame(all_data)
+    
+    # Process embeddings
+    if 'embedding' in df.columns and not df.empty:
+        if start_id is None:
+            print(f"Processing {len(df)} embeddings (converting from list/string to numpy)...")
+        
+        # 1. Convert to list of values first to avoid pandas overhead in loop
+        raw_values = df['embedding'].values
+        processed_values = [None] * len(raw_values)
+        
+        chunk_size = 50000
+        total = len(raw_values)
+        
+        for i in range(0, total, chunk_size):
+            end = min(i + chunk_size, total)
+            
+            # Process this chunk
+            chunk_res = []
+            for val in raw_values[i:end]:
+                chunk_res.append(process_embedding_str(val))
+            
+            # Assign back
+            processed_values[i:end] = chunk_res
 
-        # Apply the parser
-        df['embedding_vec'] = df['embedding'].apply(parse_pg_array)
+        df['embedding_vec'] = processed_values
         df = df.dropna(subset=['embedding_vec'])
-        
-    # Cleanup strings
+    
+    # Standardize subreddit names
     if 'subreddit' in df.columns:
         df['clean_subreddit'] = df['subreddit'].astype(str).str.strip()
-    
+        
+    # Add a type label (Risk vs Control) for potential usage
     df['dataset_type'] = table_name
     
-    print(f"Loaded {len(df)} rows.")
     return df
+
+def get_id_range(table_name):
+    """Helper to get min and max IDs for parallel fetching."""
+    try:
+        # Get min id
+        res_min = supabase.table(table_name).select("id").order("id", desc=False).limit(1).execute()
+        min_id = res_min.data[0]['id'] if res_min.data else 0
+        
+        # Get max id
+        res_max = supabase.table(table_name).select("id").order("id", desc=True).limit(1).execute()
+        max_id = res_max.data[0]['id'] if res_max.data else 0
+        
+        return min_id, max_id
+    except Exception as e:
+        print(f"Error getting ID range for {table_name}: {e}")
+        return 0, 0
+
+def fetch_data_parallel(table_name, columns=None, num_workers=10):
+    """
+    Fetches data from Supabase in parallel chunks.
+    Faster for large datasets (e.g., >100k rows) by utilizing network bandwidth.
+    """
+    print(f"Starting parallel fetch for {table_name} with {num_workers} workers...")
+    
+    min_id, max_id = get_id_range(table_name)
+    print(f"   -> ID Range: {min_id} to {max_id}")
+    
+    if max_id == 0 or min_id > max_id:
+        print("   -> Table appears empty or inaccessible.")
+        return pd.DataFrame()
+
+    total_range = max_id - min_id
+    if total_range < 1000:
+        # Small table, just fetch normally
+        return fetch_data(table_name, columns=columns)
+        
+    # Calculate ranges
+    chunk_size = math.ceil(total_range / num_workers)
+    ranges = []
+    
+    current_start = min_id
+    for _ in range(num_workers):
+        current_end = current_start + chunk_size
+        # Ensure we don't go past max_id (though lte handles it, cleaner to be precise)
+        actual_end = min(current_end, max_id)
+        
+        ranges.append((current_start, actual_end))
+        current_start = actual_end + 1
+        
+        if current_start > max_id:
+            break
+            
+    print(f"   -> Launching {len(ranges)} threads...")
+    
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Map ranges to futures
+        future_to_range = {
+            executor.submit(fetch_data, table_name, 2000, columns, r[0], r[1]): r 
+            for r in ranges
+        }
+        
+        for future in concurrent.futures.as_completed(future_to_range):
+            r_range = future_to_range[future]
+            try:
+                df_chunk = future.result()
+                results.append(df_chunk)
+                # print(f"      -> Chunk {r_range} finished: {len(df_chunk)} rows")
+            except Exception as exc:
+                print(f"      -> Chunk {r_range} generated an exception: {exc}")
+
+    if not results:
+        return pd.DataFrame()
+        
+    print("   -> Concatenating results...")
+    final_df = pd.concat(results, ignore_index=True)
+    
+    # Deduplicate just in case of overlap (shouldn't happen with strict ranges but safe)
+    final_df = final_df.drop_duplicates(subset=['id'])
+    
+    print(f"Parallel fetch complete. Total rows: {len(final_df)}")
+    return final_df

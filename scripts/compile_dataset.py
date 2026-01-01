@@ -22,6 +22,7 @@ from src.config import (
     TEST_FILE,
     DATA_DIR
 )
+from src.data.storage import fetch_data_parallel
 
 # --- CONFIGURATION ---
 NEIGHBOR_K = 50 # Increased for better density estimation on large data
@@ -144,18 +145,29 @@ def main():
         sys.exit(1)
         
     # 1. Load Data
-    print(f"Loading data from Supabase via CSV Stream...")
-    from src.data.storage import fetch_data
+    print(f"Loading data via Parallel Fetch from Supabase...")
+
+    # Define tables
+    REDDIT_TABLE = "reddit_mental_health_embeddings"
+    CONTROL_TABLE = "reddit_safe_embeddings"
     
-    # Fetch Risk
-    print("Fetching Risk Data...")
-    df_risk = fetch_data("reddit_mental_health_embeddings", columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"])
+    # Fetch in parallel
+    print(f"Fetching {REDDIT_TABLE}...")
+    df_risk = fetch_data_parallel(
+        REDDIT_TABLE, 
+        columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"],
+        num_workers=10
+    )
     
-    # Fetch Safe
-    print("Fetching Safe Data...")
-    df_safe = fetch_data("reddit_safe_embeddings", columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"])
+    print(f"Fetching {CONTROL_TABLE}...")
+    df_control = fetch_data_parallel(
+        CONTROL_TABLE, 
+        columns=["subreddit", "embedding", "input", "post_id", "author", "predicted_emotions", "emotion_scores"],
+        num_workers=10
+    )
     
-    df_all = pd.concat([df_risk, df_safe], ignore_index=True)
+    print("Combining datasets...")
+    df_all = pd.concat([df_risk, df_control], ignore_index=True)
     
     if 'post_id' not in df_all.columns:
         df_all['post_id'] = df_all.index # Fallback
@@ -309,29 +321,22 @@ def main():
         json.dump(risk_indices, f)
         
     # ==========================================================
-    # EXPORT (Switch to Parquet)
+    # EXPORT
     # ==========================================================
-    print("\n--- Exporting to Parquet ---")
+    print("\n--- Exporting ---")
     
-    # Replace save_jsonl with this:
-    def save_parquet(dataframe, filename):
-        # 1. Prepare columns
+    def save_jsonl(dataframe, filename):
         out = dataframe.rename(columns={'input': 'text'})
         out['label'] = out['binary_label'].astype(int)
         
         cols = ['text', 'label', 'soft_label']
-        if 'subreddit' in out.columns: 
-            cols.append('subreddit')
+        if 'subreddit' in out.columns: cols.append('subreddit')
         
-        # 2. Change extension to .parquet
-        parquet_filename = filename.replace('.jsonl', '.parquet')
+        out[cols].to_json(filename, orient='records', lines=True)
+        print(f"Saved {len(out)} to {filename}")
         
-        # 3. Save fast
-        out[cols].to_parquet(parquet_filename, index=False, engine='pyarrow', compression='snappy')
-        print(f"Saved {len(out)} rows to {parquet_filename}")
-        
-    save_parquet(final_train, TRAIN_FILE)
-    save_parquet(test_df, TEST_FILE)
+    save_jsonl(final_train, TRAIN_FILE)
+    save_jsonl(test_df, TEST_FILE)
     print("Done!")
 
 if __name__ == "__main__":

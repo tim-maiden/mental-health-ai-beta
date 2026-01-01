@@ -54,20 +54,9 @@ def main():
         print("Falling back to offline mode. Run `wandb sync` later to upload logs.")
         wandb.init(project=WANDB_PROJECT, mode="offline")
 
-    # 1. Update paths to look for .parquet
-    train_path = TRAIN_FILE.replace('.jsonl', '.parquet')
-    test_path = TEST_FILE.replace('.jsonl', '.parquet')
-
-    if not os.path.exists(train_path):
-        print(f"Error: {train_path} not found. Did you run compile_dataset.py?")
-        sys.exit(1)
-
-    print(f"Loading Parquet datasets from {train_path}...")
-
-    # 2. Load using the "parquet" builder
-    dataset = load_dataset("parquet", data_files={
-        "train": train_path,
-        "test": test_path
+    dataset = load_dataset("json", data_files={
+        "train": TRAIN_FILE,
+        "test": TEST_FILE
     })
     
     # Load subreddit mapping to determine num_labels
