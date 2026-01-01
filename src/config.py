@@ -32,10 +32,23 @@ if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
 # --- PROCESSING CONFIGURATION ---
 BATCH_SIZE = 500  # Reduced from 1000 to avoid Supabase statement timeouts
 PROGRESS_FILE = "progress.json"
+SEED = 42
+
+# --- DATASET COMPILATION ---
+NEIGHBOR_K = 50 # Increased for better density estimation on large data
+RISK_DENSITY_THRESHOLD = 0.60 # High Purity for Risk
+SAFE_DENSITY_THRESHOLD = 0.40 # High Purity for Safe (Self-Density)
+HIGH_EMOTION_THRESHOLD = 0.7
+LOW_EMOTION_THRESHOLD = 0.3
 
 # --- API LIMITS CONFIGURATION ---
 TPM_LIMIT = 5_000_000
 RPM_LIMIT = 5_000
+
+# --- EMBEDDING CONFIGURATION ---
+EMBEDDING_MODEL = "text-embedding-3-large"
+EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_MAX_WORKERS = 24
 
 # --- MODEL & TRAINING CONFIGURATION ---
 # Environment-aware model selection:
@@ -51,12 +64,36 @@ else:
 
 WANDB_PROJECT = "mental-health-classifier"
 
+# Training Hyperparameters
+TRAIN_EPOCHS = 2
+LEARNING_RATE = 2e-5
+WEIGHT_DECAY = 0.1
+WARMUP_RATIO = 0.1
+SAVE_TOTAL_LIMIT = 1
+
+# Distillation
+STUDENT_MODEL_ID = "distilbert-base-uncased"
+DISTILLATION_EPOCHS = 5
+
 # --- INFERENCE CONFIGURATION ---
 # Temperature scaling for confidence calibration
 # T < 1.0 sharpens predictions (makes them more confident)
 # T = 0.3 is optimized for margin-based classifiers that produce "squashed" probabilities
 # Rationale: Model learns correct direction but lacks hard negatives that force high-magnitude logits
 TEMPERATURE = 1.0
+
+# --- EMOTION DEFINITIONS ---
+POSITIVE_EMOTIONS = {
+    "joy", "love", "excitement", "admiration", "optimism", 
+    "pride", "amusement", "gratitude"
+}
+
+NEGATIVE_EMOTIONS = {
+    "sadness", "grief", "anger", "fear", "nervousness", 
+    "remorse", "disgust", "annoyance", "disappointment"
+}
+GOEMOTIONS_TABLE = "goemotions_embeddings"
+PROBE_CONFIDENCE_THRESHOLD = 0.90
 
 # Paths
 if DEPLOY_ENV in ["runpod", "cloud"]:
@@ -86,3 +123,4 @@ TEST_FILE = os.path.join(DATA_DIR, "test.parquet")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
+DISTILLATION_OUTPUT_DIR = os.path.join(MODELS_DIR, "final_student_distilbert")

@@ -16,15 +16,17 @@ from src.modeling.training import get_training_args, CustomTrainer, compute_metr
 from src.config import (
     MODEL_OUTPUT_DIR, 
     WANDB_PROJECT,
-    DATA_DIR
+    DATA_DIR,
+    STUDENT_MODEL_ID,
+    DISTILLATION_EPOCHS,
+    DISTILLATION_OUTPUT_DIR
 )
 
 # Config
-STUDENT_MODEL_ID = "distilbert-base-uncased"
 # INPUT_FILE = os.path.join(DATA_DIR, "lmsys_silver_labels.pkl")
 INPUT_FILE = os.path.join(DATA_DIR, "wildchat_silver_labels.pkl")
-OUTPUT_DIR = "models/final_student_distilbert"
-NUM_EPOCHS = 5
+OUTPUT_DIR = DISTILLATION_OUTPUT_DIR
+NUM_EPOCHS = DISTILLATION_EPOCHS
 
 def main():
     print(f"--- Starting Student Distillation (Model: {STUDENT_MODEL_ID}) ---")

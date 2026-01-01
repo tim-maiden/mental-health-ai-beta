@@ -67,6 +67,13 @@ class CustomTrainer(Trainer):
         
         return (total_loss, outputs) if return_outputs else total_loss
 
+from src.config import (
+    LEARNING_RATE,
+    WEIGHT_DECAY,
+    WARMUP_RATIO,
+    SAVE_TOTAL_LIMIT
+)
+
 def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_size=16, model_id=None, train_size=0):
     """
     Returns TrainingArguments based on hardware availability.
@@ -98,9 +105,9 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         overwrite_output_dir=True,
         evaluation_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=2e-5,
-        warmup_ratio=0.1,
-        weight_decay=0.1,  # Increased for better regularization
+        learning_rate=LEARNING_RATE,
+        warmup_ratio=WARMUP_RATIO,
+        weight_decay=WEIGHT_DECAY,  # Increased for better regularization
         lr_scheduler_type="cosine",
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
@@ -108,7 +115,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         num_train_epochs=num_epochs,
         load_best_model_at_end=True,
         metric_for_best_model="eval_accuracy",
-        save_total_limit=1,  # CRITICAL FIX: Only keep the best checkpoint to prevent disk space exhaustion
+        save_total_limit=SAVE_TOTAL_LIMIT,  # CRITICAL FIX: Only keep the best checkpoint to prevent disk space exhaustion
         fp16=fp16_mode,
         bf16=bf16_mode,
         dataloader_pin_memory=pin_memory,

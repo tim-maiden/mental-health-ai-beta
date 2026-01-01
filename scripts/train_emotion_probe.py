@@ -17,10 +17,17 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.core.clients import supabase
-from src.config import MODELS_DIR, DATA_DIR
+from src.config import (
+    MODELS_DIR, 
+    DATA_DIR,
+    POSITIVE_EMOTIONS,
+    NEGATIVE_EMOTIONS,
+    GOEMOTIONS_TABLE,
+    BATCH_SIZE,
+    PROBE_CONFIDENCE_THRESHOLD
+)
 
 # --- CONFIGURATION ---
-GOEMOTIONS_TABLE = "goemotions_embeddings"
 # Default table, can be overridden by --table arg
 DEFAULT_TARGET_TABLE = "reddit_safe_embeddings"
 
@@ -29,16 +36,6 @@ BINARIZER_PATH = os.path.join(MODELS_DIR, "emotion_binarizer.pkl")
 CACHE_PATH = os.path.join(DATA_DIR, "goemotions_cache.pkl")
 
 # --- EMOTION DEFINITIONS (Granular) ---
-POSITIVE_EMOTIONS = {
-    "joy", "love", "excitement", "admiration", "optimism", 
-    "pride", "amusement", "gratitude"
-}
-
-NEGATIVE_EMOTIONS = {
-    "sadness", "grief", "anger", "fear", "nervousness", 
-    "remorse", "disgust", "annoyance", "disappointment"
-}
-
 TARGET_EMOTIONS = list(POSITIVE_EMOTIONS.union(NEGATIVE_EMOTIONS))
 
 def process_embedding_str(x):
@@ -58,7 +55,7 @@ def fetch_goemotions_data(limit=None, use_cache=True):
     query = supabase.table(GOEMOTIONS_TABLE).select("embedding, emotions")
     all_data = []
     offset = 0
-    batch_size = 1000
+    batch_size = BATCH_SIZE
     
     while True:
         try:
@@ -142,7 +139,7 @@ def train_probe(df):
         
     return clf, mlb, scaler
 
-def process_data_in_batches(target_table, clf, mlb, batch_size=2000, limit=None, scaler=None):
+def process_data_in_batches(target_table, clf, mlb, batch_size=BATCH_SIZE, limit=None, scaler=None):
     print(f"Processing data from {target_table} in batches (Cursor Pagination + Late Fusion)...")
     
     # Identify indices for Late Fusion Aggregation
@@ -198,7 +195,7 @@ def process_data_in_batches(target_table, clf, mlb, batch_size=2000, limit=None,
                 pos_scores = np.max(probas[:, pos_indices], axis=1)
                 neg_scores = np.max(probas[:, neg_indices], axis=1)
                 
-                THRESHOLD = 0.90
+                THRESHOLD = PROBE_CONFIDENCE_THRESHOLD
                 updates = []
                 
                 for idx, row in batch_df.iterrows():

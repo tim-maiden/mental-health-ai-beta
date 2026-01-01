@@ -20,17 +20,18 @@ from src.config import (
     RAW_DATA_FILE,
     TRAIN_FILE,
     TEST_FILE,
-    DATA_DIR
+    DATA_DIR,
+    NEIGHBOR_K,
+    RISK_DENSITY_THRESHOLD,
+    SAFE_DENSITY_THRESHOLD,
+    SEED,
+    HIGH_EMOTION_THRESHOLD,
+    LOW_EMOTION_THRESHOLD
 )
 # from src.data.storage import fetch_data_parallel
 
 # --- CONFIGURATION ---
-NEIGHBOR_K = 50 # Increased for better density estimation on large data
-RISK_DENSITY_THRESHOLD = 0.60 # High Purity for Risk
-SAFE_DENSITY_THRESHOLD = 0.40 # High Purity for Safe (Self-Density)
-SEED = 42
-HIGH_EMOTION_THRESHOLD = 0.7
-LOW_EMOTION_THRESHOLD = 0.3
+# (Moved to config.py)
 
 def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     """

@@ -14,6 +14,8 @@ deploy/
 # Ignore local progress tracking
 progress.json
 *.log
+requirements_local.txt
+wandb/
 
 # Ignore local data and outputs (we should fetch/generate these in the cloud)
 data/
@@ -24,6 +26,15 @@ models/
 models/*
 logs/
 logs/*
+
+# Large Data Files
+*.parquet
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.bin
+*.onnx
 
 # Ignore secrets (NEVER bake secrets into the image)
 secrets.json

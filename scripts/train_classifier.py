@@ -22,11 +22,12 @@ from src.config import (
     TEST_FILE, 
     MODEL_OUTPUT_DIR, 
     WANDB_PROJECT,
-    DATA_DIR
+    DATA_DIR,
+    TRAIN_EPOCHS
 )
 
 OUTPUT_DIR = MODEL_OUTPUT_DIR
-NUM_EPOCHS = 2 # Reduced from 10 to 2 for Abundance Modeling (2.4M rows)
+NUM_EPOCHS = TRAIN_EPOCHS
 
 def main():
     print(f"--- Loading Data from Local Files ---")

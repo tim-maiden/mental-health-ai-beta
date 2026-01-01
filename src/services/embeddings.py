@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from src.core.clients import openai_client, encoding
 from src.services.rate_limiter import rate_limiter
+from src.config import EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, EMBEDDING_MAX_WORKERS
 
 def embed_text(text, large=True, retries=3, delay=5):
     """
@@ -11,9 +12,9 @@ def embed_text(text, large=True, retries=3, delay=5):
     Defaults to text-embedding-3-large but reduced to 1536 dimensions 
     to match the legacy schema size while getting better quality.
     """
-    model = "text-embedding-3-large" if large else "text-embedding-3-small"
+    model = EMBEDDING_MODEL if large else "text-embedding-3-small"
     # User requested 'large' model but with same dimensions as before (1536)
-    dimensions = 1536 
+    dimensions = EMBEDDING_DIMENSIONS 
     
     # Proactively manage rate limits before making the API call
     try:
@@ -40,7 +41,7 @@ def embed_text(text, large=True, retries=3, delay=5):
     print("Failed to embed text after multiple retries.")
     return None
 
-def embed_dataframe(df: pd.DataFrame, text_column: str = 'input', max_workers: int = 24, desc="Embedding rows"):
+def embed_dataframe(df: pd.DataFrame, text_column: str = 'input', max_workers: int = EMBEDDING_MAX_WORKERS, desc="Embedding rows"):
     """
     Embeds a DataFrame column in parallel using ThreadPoolExecutor.
     """
