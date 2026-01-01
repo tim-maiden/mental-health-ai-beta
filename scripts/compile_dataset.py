@@ -156,14 +156,14 @@ def main():
     df_risk = fetch_data_parallel(
         REDDIT_TABLE, 
         columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"],
-        num_workers=30
+        num_workers=5
     )
     
     print(f"Fetching {CONTROL_TABLE}...")
     df_control = fetch_data_parallel(
         CONTROL_TABLE, 
         columns=["subreddit", "embedding", "input", "post_id", "author", "predicted_emotions", "emotion_scores"],
-        num_workers=30
+        num_workers=5
     )
     
     print("Combining datasets...")

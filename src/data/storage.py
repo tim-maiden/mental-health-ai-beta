@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+import random
 import json
 import ast
 import pandas as pd
@@ -139,7 +141,20 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
         if end_id is not None:
             filter_builder = filter_builder.lte("id", end_id)
             
-        response = filter_builder.limit(fetch_size).execute()
+        # Retry loop with exponential backoff
+        max_retries = 5
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = filter_builder.limit(fetch_size).execute()
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    print(f"   -> Error fetching chunk (last_id={last_id}) after {max_retries} attempts: {e}")
+                    raise e
+                
+                wait_time = (2 ** attempt) + random.random()
+                time.sleep(wait_time)
         
         data = response.data
         if not data:
@@ -263,7 +278,7 @@ def fetch_data_parallel(table_name, columns=None, num_workers=30):
             try:
                 df_chunk = future.result()
                 results.append(df_chunk)
-                # print(f"      -> Chunk {r_range} finished: {len(df_chunk)} rows")
+                print(f"      -> Chunk {r_range} finished: {len(df_chunk)} rows")
             except Exception as exc:
                 print(f"      -> Chunk {r_range} generated an exception: {exc}")
 
