@@ -95,41 +95,70 @@ def process_embedding_str(x):
         return None
 
 def fetch_data(table_name, fetch_size=1000, columns=None):
-    """Fetches all data from a Supabase table."""
+    """Fetches all data from a Supabase table using efficient cursor-based pagination."""
     print(f"Fetching data from {table_name}...")
+    
+    # If columns are not specified, default to this set
     if columns is None:
         columns = ["subreddit", "embedding", "input", "post_id", "chunk_id"]
     
-    select_str = ", ".join(columns)
+    # We MUST fetch 'id' for cursor pagination to work reliably
+    query_columns = list(set(columns + ["id"]))
+    select_str = ", ".join(query_columns)
+    
     all_data = []
-    page = 0
+    last_id = 0
+    total_fetched = 0
     
     while True:
-        offset = page * fetch_size
-        # Select specified columns
+        # Use ID-based cursor pagination (O(1) vs O(N) for offset)
+        # Select rows where id > last_id
         query = supabase.table(table_name).select(select_str)
         
-        # Ensure deterministic ordering for pagination
-        if "post_id" in columns and "chunk_id" in columns:
-            query = query.order("post_id", desc=False).order("chunk_id", desc=False)
-            
-        response = query.limit(fetch_size).offset(offset).execute()
+        # Order by ID to ensure we move forward correctly
+        response = query.order("id", desc=False)\
+                        .gt("id", last_id)\
+                        .limit(fetch_size)\
+                        .execute()
+        
         data = response.data
         if not data:
+            print(f"   -> No more data found (Last ID: {last_id}).")
             break
+            
         all_data.extend(data)
-        page += 1
-        print(f"   -> Fetched {len(all_data)} rows...", end="\r")
+        
+        # Update cursor
+        # Assumes 'id' is in the response and is sortable (int)
+        last_id = data[-1]['id']
+        total_fetched += len(data)
+        
+        if total_fetched % (fetch_size * 10) == 0:
+             print(f"   -> Fetched {total_fetched} rows so far (Last ID: {last_id})...")
     
     print(f"\nTotal rows from {table_name}: {len(all_data)}")
     
     df = pd.DataFrame(all_data)
-    df['embedding_vec'] = df['embedding'].apply(process_embedding_str)
-    df = df.dropna(subset=['embedding_vec'])
+    
+    # Process embeddings
+    if 'embedding' in df.columns:
+        df['embedding_vec'] = df['embedding'].apply(process_embedding_str)
+        df = df.dropna(subset=['embedding_vec'])
     
     # Standardize subreddit names
-    df['clean_subreddit'] = df['subreddit'].astype(str).str.strip()
+    if 'subreddit' in df.columns:
+        df['clean_subreddit'] = df['subreddit'].astype(str).str.strip()
+        
     # Add a type label (Risk vs Control) for potential usage
     df['dataset_type'] = table_name
+    
+    # If 'id' wasn't requested originally, we can drop it, 
+    # but keeping it is usually harmless and often useful.
+    # For strict compliance with requested columns:
+    # (Optional: Uncomment to enforce strict column return)
+    # final_cols = [c for c in columns if c in df.columns]
+    # if 'embedding_vec' in df.columns and 'embedding_vec' not in final_cols:
+    #     final_cols.append('embedding_vec')
+    # df = df[final_cols]
     
     return df
