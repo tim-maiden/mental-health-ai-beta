@@ -213,7 +213,7 @@ def get_id_range(table_name):
         print(f"Error getting ID range for {table_name}: {e}")
         return 0, 0
 
-def fetch_data_parallel(table_name, columns=None, num_workers=10):
+def fetch_data_parallel(table_name, columns=None, num_workers=30):
     """
     Fetches data from Supabase in parallel chunks.
     Faster for large datasets (e.g., >100k rows) by utilizing network bandwidth.
