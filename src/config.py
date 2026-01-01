@@ -77,7 +77,9 @@ SNAPSHOTS_DIR = os.path.join(DATA_DIR, "snapshots")
 
 # Data Files
 # Changed to PKL for binary efficiency and type preservation
-RAW_DATA_FILE = os.path.join(DATA_DIR, "raw_latest.pkl")  
+# RAW_DATA_FILE = os.path.join(DATA_DIR, "raw_latest.pkl")
+# UPDATED: Use S3 Parquet to avoid local disk exhaustion
+RAW_DATA_FILE = f"s3://{S3_BUCKET_NAME}/data/latest/raw_data.parquet"
 
 TRAIN_FILE = os.path.join(DATA_DIR, "final_train.jsonl")
 TEST_FILE = os.path.join(DATA_DIR, "test.jsonl")

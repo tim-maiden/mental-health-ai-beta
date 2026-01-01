@@ -144,12 +144,16 @@ def main():
         sys.exit(1)
         
     # 1. Load Data
-    if not os.path.exists(RAW_DATA_FILE):
-        print(f"Error: Snapshot file {RAW_DATA_FILE} not found.")
-        sys.exit(1)
-        
     print(f"Loading data from {RAW_DATA_FILE}...")
-    df_all = pd.read_pickle(RAW_DATA_FILE)
+    
+    # Load from S3 directly
+    df_all = pd.read_parquet(
+        RAW_DATA_FILE, 
+        storage_options={
+            "key": os.getenv("AWS_ACCESS_KEY_ID"),
+            "secret": os.getenv("AWS_SECRET_ACCESS_KEY")
+        }
+    )
     
     if 'post_id' not in df_all.columns:
         df_all['post_id'] = df_all.index # Fallback
