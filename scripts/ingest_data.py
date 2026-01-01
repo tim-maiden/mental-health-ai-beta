@@ -46,6 +46,11 @@ def process_chunk(df_chunk, dataset_type):
     # Add dataset type
     df_chunk['dataset_type'] = dataset_type
     
+    # Ensure embedding is stored as list of floats (not string)
+    if 'embedding_vec' in df_chunk.columns:
+        # storage.py already parsed it to numpy array, convert to list for Parquet
+        df_chunk['embedding'] = df_chunk['embedding_vec'].apply(lambda x: x.tolist() if x is not None else None)
+    
     # Filter columns
     keep_cols = [
         'post_id', 'input', 'embedding', 'dataset_type', 
@@ -58,8 +63,21 @@ def process_chunk(df_chunk, dataset_type):
             
     final_df = df_chunk[keep_cols]
     
+    # Define Schema explicitly to handle "predicted_emotions" mismatch
+    # (mental_health table has it as null, safe table has it as list<string>)
+    schema = pa.schema([
+        ('post_id', pa.string()),
+        ('input', pa.string()),
+        ('embedding', pa.list_(pa.float32())), # Store as list of floats
+        ('dataset_type', pa.string()),
+        ('subreddit', pa.string()),
+        ('author', pa.string()),
+        ('emotion_scores', pa.struct([('negative', pa.float64()), ('positive', pa.float64())])),
+        ('predicted_emotions', pa.list_(pa.string())) # Force list<string> even if null
+    ])
+    
     # Write to parquet with lock
-    table = pa.Table.from_pandas(final_df)
+    table = pa.Table.from_pandas(final_df, schema=schema)
     
     with write_lock:
         if writer is None:
