@@ -94,8 +94,10 @@ else
     log "Compiled data not found or download failed. Proceeding with full data pipeline..."
 
     # Step 1: Data Ingestion (Snapshot)
-    log "--- Step 1: Data Ingestion ---"
-    python scripts/ingest_data.py
+    # Skipped on RunPod to enforce "Freeze" workflow.
+    # Ensure you have run 'python scripts/ingest_data.py' locally first!
+    log "--- Step 1: Data Ingestion (Skipped - Reading from S3 Snapshot) ---"
+    # python scripts/ingest_data.py
 
     # Step 2: Compile Dataset (Teacher Training Data)
     log "--- Step 2: Dataset Compilation (Soft Labels via k-NN) ---"
@@ -106,8 +108,8 @@ else
     
     # Create temp dir for specific artifacts we want to version (to avoid uploading raw pickles)
     mkdir -p data/compiled_artifacts
-    cp data/final_train.jsonl data/compiled_artifacts/ 2>/dev/null || true
-    cp data/test.jsonl data/compiled_artifacts/ 2>/dev/null || true
+    cp data/final_train.parquet data/compiled_artifacts/ 2>/dev/null || true
+    cp data/test.parquet data/compiled_artifacts/ 2>/dev/null || true
     cp data/subreddit_mapping.json data/compiled_artifacts/ 2>/dev/null || true
     
     # Upload to timestamped folder (Versioning for reproducibility)
