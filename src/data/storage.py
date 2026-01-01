@@ -84,15 +84,23 @@ def embed_and_upload_dataframe_in_batches(df: pd.DataFrame, table_name: str, bat
             sys.exit(1)
 
 def process_embedding_str(x):
-    """Converts string representation of list to numpy array."""
+    """Converts string representation of list to numpy array. Optimized for speed."""
     if x is None:
         return None
+        
+    # If it's already a list (some drivers do this automatically)
+    if isinstance(x, list):
+        return np.array(x, dtype=np.float32)
+        
+    # Fast path: json.loads is ~10-50x faster than ast.literal_eval
     try:
-        if isinstance(x, list):
-            return np.array(x, dtype=np.float32)
-        return np.array(ast.literal_eval(x), dtype=np.float32)
-    except (ValueError, SyntaxError):
-        return None
+        return np.array(json.loads(x), dtype=np.float32)
+    except (TypeError, json.JSONDecodeError):
+        # Fallback to slower/safer parser if JSON fails
+        try:
+            return np.array(ast.literal_eval(x), dtype=np.float32)
+        except (ValueError, SyntaxError):
+            return None
 
 def fetch_data(table_name, fetch_size=1000, columns=None):
     """Fetches all data from a Supabase table using efficient cursor-based pagination."""
@@ -142,7 +150,29 @@ def fetch_data(table_name, fetch_size=1000, columns=None):
     
     # Process embeddings
     if 'embedding' in df.columns:
-        df['embedding_vec'] = df['embedding'].apply(process_embedding_str)
+        print(f"Processing {len(df)} embeddings (converting from list/string to numpy)...")
+        # tqdm doesn't play well with remote logs; use explicit manual chunks
+        
+        # 1. Convert to list of values first to avoid pandas overhead in loop
+        raw_values = df['embedding'].values
+        processed_values = [None] * len(raw_values)
+        
+        chunk_size = 50000
+        total = len(raw_values)
+        
+        for i in range(0, total, chunk_size):
+            end = min(i + chunk_size, total)
+            print(f"   -> Processing embeddings {i} to {end} ({int(i/total*100)}%)...")
+            
+            # Process this chunk
+            chunk_res = []
+            for val in raw_values[i:end]:
+                chunk_res.append(process_embedding_str(val))
+            
+            # Assign back
+            processed_values[i:end] = chunk_res
+
+        df['embedding_vec'] = processed_values
         df = df.dropna(subset=['embedding_vec'])
     
     # Standardize subreddit names
