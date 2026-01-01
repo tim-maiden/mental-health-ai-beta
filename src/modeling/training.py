@@ -123,6 +123,8 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         torch_compile=is_cloud,
         torch_compile_mode="default" if is_cloud else None,
         tf32=is_cloud,  # Enable TensorFloat-32 for significant speedup
+        dataloader_persistent_workers=is_cloud,
+        ddp_find_unused_parameters=False if is_cloud else None,
     )
 
 def compute_metrics(eval_pred):

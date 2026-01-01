@@ -26,7 +26,7 @@ from src.config import (
 )
 
 OUTPUT_DIR = MODEL_OUTPUT_DIR
-NUM_EPOCHS = 10
+NUM_EPOCHS = 2 # Reduced from 10 to 2 for Abundance Modeling (2.4M rows)
 
 def main():
     print(f"--- Loading Data from Local Files ---")
@@ -92,33 +92,9 @@ def main():
         problem_type="multi_label_classification" # Hint to HF (though we override loss anyway)
     )
 
-    # --- Regularization: Partial Freezing ---
-    print("Freezing bottom 50% of the model (Embeddings + 12 Encoders)...")
-    # Freeze embeddings
-    if hasattr(model, 'deberta'):
-        base_model = model.deberta
-    elif hasattr(model, 'bert'):
-        base_model = model.bert
-    else:
-        # Fallback for generic structure, assuming 'deberta' based on config
-        base_model = getattr(model, 'deberta', None)
-    
-    if base_model:
-        for param in base_model.embeddings.parameters():
-            param.requires_grad = False
-            
-        # Freeze bottom 12 encoders (out of 24 for Large)
-        # Check if layer exists (Small model only has 6 layers)
-        if hasattr(base_model.encoder, 'layer'):
-            layers = base_model.encoder.layer
-            num_layers = len(layers)
-            num_freeze = num_layers // 2
-            print(f"Freezing {num_freeze} out of {num_layers} layers.")
-            for layer in layers[:num_freeze]:
-                for param in layer.parameters():
-                    param.requires_grad = False
-    else:
-        print("Warning: Could not identify base model for freezing. Skipping.")
+    # --- UNFREEZING: FULLY TRAINABLE ---
+    # We removed the freezing logic. The model is now fully trainable to overwrite pre-trained biases.
+    print("Model is FULLY TRAINABLE (No Freezing).")
 
     # Load Risk Indices
     risk_indices_path = os.path.join(DATA_DIR, "risk_indices.json")
@@ -139,7 +115,18 @@ def main():
         train_size=len(dataset['train']),
         num_epochs=NUM_EPOCHS
     )
-    # FORCE OVERRIDE to ensure correct metric is used despite caching issues
+    
+    # FORCE OVERRIDE: H100 Optimization Strategy
+    # Maximize VRAM usage (H100 has 80GB)
+    if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
+        print("Overriding Training Args for H100 Abundance Strategy...")
+        training_args.per_device_train_batch_size = 64
+        training_args.gradient_accumulation_steps = 1 # Global batch size = 64 (per device) * 1 * N_devices
+        training_args.bf16 = True
+        training_args.fp16 = False # Ensure FP16 is off
+        training_args.dataloader_num_workers = 8
+        
+    # Ensure correct metric is used despite caching issues
     training_args.metric_for_best_model = "eval_accuracy"
 
     trainer = CustomTrainer(
@@ -167,11 +154,6 @@ def main():
     # Evaluation is handled in detail by scripts/inference.py and WandB logging.
     # metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
     # print(metrics)
-    
-    # --- Dynamic Thresholding Skipped for Multilabel ---
-    # For Soft-Label distillation, we don't optimize a single binary threshold immediately.
-    # The output is a probability distribution over subreddits.
-    # We will rely on inference-time logic to interpret this distribution.
     
     wandb.finish()
 

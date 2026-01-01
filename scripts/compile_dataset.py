@@ -2,12 +2,20 @@ import os
 import sys
 import pandas as pd
 import numpy as np
+import json
 from sklearn.model_selection import train_test_split
-from sklearn.neighbors import NearestNeighbors
+
+# Handle FAISS import with fallback for local dev (CPU) vs Cloud (GPU)
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    print("Warning: faiss not installed. Please install faiss-gpu (or faiss-cpu).")
+    FAISS_AVAILABLE = False
+
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.analysis.metrics import reduce_dimensions, calculate_risk_density
 from src.config import (
     RAW_DATA_FILE,
     TRAIN_FILE,
@@ -15,406 +23,293 @@ from src.config import (
     DATA_DIR
 )
 
-# --- DATA FILTERING THRESHOLDS ---
-# Local Purity Strategy:
-# k=20 (was 100): Allows small, subtle clusters of unique risk to survive.
-# RISK > 0.60 (was 0.30): Strict uniqueness. Only keeps text that is MAJORITY risk in its local neighborhood.
-NEIGHBOR_K = 20 
-SAFE_DENSITY_THRESHOLD = 0.45 
-RISK_DENSITY_THRESHOLD = 0.60
+# --- CONFIGURATION ---
+NEIGHBOR_K = 50 # Increased for better density estimation on large data
+RISK_DENSITY_THRESHOLD = 0.60 # High Purity for Risk
+SAFE_DENSITY_THRESHOLD = 0.40 # High Purity for Safe (Self-Density)
+SEED = 42
+HIGH_EMOTION_THRESHOLD = 0.7
+LOW_EMOTION_THRESHOLD = 0.3
 
-# Hard Negative Upper Bound: Safe items with density above this likely contain label errors or are too ambiguous
-# UPDATED: Raised to 0.98 to force "Extreme Hard Negatives" (like Hiking vs Anxiety) into the dataset.
-# We trust our Ground Truth labels more than the embedding similarity.
-HARD_NEGATIVE_UPPER_BOUND = 0.98 
+def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
+    """
+    Calculates the average cosine similarity to the k nearest neighbors using FAISS (GPU if available).
+    """
+    if not FAISS_AVAILABLE:
+        raise ImportError("FAISS is not installed. Cannot calculate density.")
+
+    d = ref_vecs.shape[1]
+    
+    # Ensure float32
+    query_vecs = query_vecs.astype(np.float32)
+    ref_vecs = ref_vecs.astype(np.float32)
+    
+    print(f"Build FAISS Index (d={d}, ref_size={len(ref_vecs)})...")
+    
+    # Setup Index (Inner Product = Cosine if normalized)
+    index = faiss.IndexFlatIP(d)
+    
+    # GPU Transfer if available
+    try:
+        res = faiss.StandardGpuResources()
+        print("Using FAISS GPU...")
+        index = faiss.index_cpu_to_gpu(res, 0, index)
+    except Exception as e:
+        print(f"FAISS GPU not available or failed ({e}). Using CPU...")
+        
+    index.add(ref_vecs)
+    
+    print(f"Searching Index (query_size={len(query_vecs)}, k={k})...")
+    D, I = index.search(query_vecs, k)
+    
+    densities = np.mean(D, axis=1)
+    
+    return densities
+
+def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=None):
+    """
+    Computes soft labels using Weighted k-NN with FAISS.
+    """
+    if not FAISS_AVAILABLE:
+        raise ImportError("FAISS is not installed.")
+
+    print(f"Computing k-NN Soft Labels (k={n_neighbors}, temp={temperature})...")
+    
+    query_vecs = np.stack(query_df['embedding_vec'].values).astype(np.float32)
+    teacher_vecs = np.stack(teacher_df['embedding_vec'].values).astype(np.float32)
+    teacher_subs = teacher_df['subreddit'].map(subreddit_map).values.astype(int)
+    num_classes = len(subreddit_map)
+    d = teacher_vecs.shape[1]
+
+    index = faiss.IndexFlatIP(d)
+    try:
+        res = faiss.StandardGpuResources()
+        index = faiss.index_cpu_to_gpu(res, 0, index)
+    except:
+        pass
+        
+    index.add(teacher_vecs)
+    distances, indices = index.search(query_vecs, n_neighbors)
+    
+    soft_labels = []
+    
+    # weights = 1 / (1 - sim)
+    similarities = distances
+    weights = 1.0 / (1.0 - similarities + 1e-6)
+    
+    neighbor_classes = teacher_subs[indices]
+    
+    for i in range(len(query_vecs)):
+        w = weights[i]
+        classes = neighbor_classes[i]
+        
+        class_scores = np.zeros(num_classes)
+        np.add.at(class_scores, classes, w)
+        
+        logits = class_scores / temperature
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / np.sum(exp_logits)
+        
+        soft_labels.append(probs.tolist())
+        
+    return soft_labels
+
+def get_emotion_score(row, target):
+    """Helper to safely extract emotion scores."""
+    scores = row.get('emotion_scores', {})
+    if isinstance(scores, str):
+        try: scores = json.loads(scores)
+        except: scores = {}
+    if isinstance(scores, dict):
+        return float(scores.get(target, 0.0))
+    # Fallback if predicted_emotions list exists (legacy)
+    ems = row.get('predicted_emotions', [])
+    if isinstance(ems, list) and target in ems: return 1.0
+    return 0.0
 
 def main():
-    print("--- Starting Sequential Dataset Compilation (Decoupled Striding) ---")
+    print("--- Starting GPU-Accelerated Dataset Compilation (Abundance Strategy) ---")
     
-    # 1. Load Data from Snapshot
+    if not FAISS_AVAILABLE:
+        print("Error: FAISS is required. Install faiss-gpu or faiss-cpu.")
+        sys.exit(1)
+        
+    # 1. Load Data
     if not os.path.exists(RAW_DATA_FILE):
         print(f"Error: Snapshot file {RAW_DATA_FILE} not found.")
-        print("Please run scripts/ingest_data.py first.")
         sys.exit(1)
         
     print(f"Loading data from {RAW_DATA_FILE}...")
     df_all = pd.read_pickle(RAW_DATA_FILE)
     
-    # Ensure post_id exists
     if 'post_id' not in df_all.columns:
-        print("Warning: 'post_id' column missing. Attempting to synthesize or failing...")
-        pass
-
-    # Label Parsing
+        df_all['post_id'] = df_all.index # Fallback
+        
     df_all['binary_label'] = df_all['dataset_type'].apply(lambda x: 1 if 'mental_health' in str(x) else 0)
-    
-    # 2. Split Train/Test by AUTHOR (Preventing Identity Leakage)
-    print("Splitting by Author (ensuring strict separation of users)...")
-    
-    # Filter out 'unknown' or '[deleted]' authors to prevent massive grouping
+
+    # 2. Split Train/Test by AUTHOR
+    print("Splitting by Author...")
     valid_authors = df_all[~df_all['author'].isin(['unknown', '[deleted]', ''])]
-    
     unique_authors = valid_authors[['author', 'binary_label']].drop_duplicates()
     
-    # Stratify by label to ensure balance of risk/safe authors
-    # If an author posts in both risk and safe (unlikely in this dataset), they are assigned based on their first appearance
     train_authors, test_authors = train_test_split(
         unique_authors, 
         test_size=0.15, 
         stratify=unique_authors['binary_label'], 
-        random_state=42
+        random_state=SEED
     )
     
-    # Create masks
     train_mask = df_all['author'].isin(train_authors['author'])
     test_mask = df_all['author'].isin(test_authors['author'])
     
-    # Handle the 'unknown' authors (usually assign to train, or drop)
-    # Here we assign them to train to maximize data usage, as they can't leak identity if anonymous
     unknown_mask = ~df_all['author'].isin(valid_authors['author'])
     train_mask = train_mask | unknown_mask
     
     train_df = df_all[train_mask].copy()
     test_df = df_all[test_mask].copy()
     
-    print(f"Train Size: {len(train_df)} rows")
-    print(f"Test Size:  {len(test_df)} rows")
-
-    # 3. Dimensionality Reduction (PCA) - SKIPPED for Higher Accuracy
-    # We now use full embeddings for both density calculation and soft label generation
-    # to prevent semantic loss (e.g. Hiking vs Anxiety).
-    print("Skipping PCA (Using Full Embeddings)...")
-    
-    # We won't create 'reduced_vec', we'll just use 'embedding_vec' directly in downstream steps.
-    # To minimize refactoring, we can alias it if needed, but better to update calls.
+    print(f"Train Size: {len(train_df)}")
+    print(f"Test Size:  {len(test_df)}")
 
     # ==========================================================
-    # PHASE 1: PROCESS TRAINING DATA (Margin-Based / Ambiguity Filtering)
+    # PHASE 1: FILTER RISK (High Purity)
     # ==========================================================
-    print("\n--- Phase 1: Processing Training Data (Margin-Based Learning) ---")
+    print("\n--- Phase 1: Filtering Risk Data ---")
     
-    # A. Build Decoupled Teacher Index (Stride = Window Size)
-    WINDOW_SIZE = 3
-    print(f"Building Non-Overlapping Teacher Index (Stride={WINDOW_SIZE})...")
+    risk_df = train_df[train_df['binary_label'] == 1].copy()
+    risk_vecs = np.stack(risk_df['embedding_vec'].values)
     
-    if 'chunk_id' in train_df.columns:
-        train_df = train_df.sort_values(['post_id', 'chunk_id'])
+    # 1. Emotion Filtering (Remove "Happy Risk")
+    print("Applying Emotion Filter to Risk...")
+    risk_df['pos_score'] = risk_df.apply(lambda x: get_emotion_score(x, 'positive'), axis=1)
+    risk_df['neg_score'] = risk_df.apply(lambda x: get_emotion_score(x, 'negative'), axis=1)
     
-    train_df['post_sequence_idx'] = train_df.groupby('post_id').cumcount()
-    teacher_mask = (train_df['post_sequence_idx'] % WINDOW_SIZE) == 0
+    # Remove if (High Positive AND Low Negative)
+    mask_bad_risk = (risk_df['pos_score'] > HIGH_EMOTION_THRESHOLD) & (risk_df['neg_score'] < LOW_EMOTION_THRESHOLD)
+    risk_df_clean_emotion = risk_df[~mask_bad_risk].copy()
+    print(f"Removed {mask_bad_risk.sum()} 'Happy Risk' items (Pos > {HIGH_EMOTION_THRESHOLD} & Neg < {LOW_EMOTION_THRESHOLD}).")
     
-    teacher_df = train_df[teacher_mask].copy()
-    print(f"Teacher Index Size: {len(teacher_df)} (Non-overlapping subset)")
-    
-    teacher_vecs = np.stack(teacher_df['embedding_vec'].values)
-    teacher_labels = teacher_df['binary_label'].values
-    
-    # B. Calc Density (Pass 1)
-    print(f"Calculating Density (Query=Full, Ref=Non-Overlapping, k={NEIGHBOR_K})...")
-    train_vecs = np.stack(train_df['embedding_vec'].values)
-    
-    density_scores_pass1 = calculate_risk_density(
-        query_embeddings=train_vecs,
-        reference_embeddings=teacher_vecs,
-        reference_labels=teacher_labels,
-        k=NEIGHBOR_K
-    )
-    train_df['risk_density_p1'] = density_scores_pass1
-    
-    # C. Filter Risk Prototypes (High Density Risk)
-    mask_risk = train_df['binary_label'] == 1
-    mask_clean_risk = mask_risk & (train_df['risk_density_p1'] > RISK_DENSITY_THRESHOLD)
-    
-    train_risk_clean_full = train_df[mask_clean_risk].copy()
-    train_safe_all_full = train_df[train_df['binary_label'] == 0].copy()
-    
-    print(f"Risk Prototypes (Density > {RISK_DENSITY_THRESHOLD}): {mask_risk.sum()} -> {len(train_risk_clean_full)}")
-    
-    # D. Recalculate Density (Pass 2)
-    print("\n--- Pass 2: Identifying Safe Prototypes & Hard Negatives ---")
-    
-    teacher_risk_clean = train_df[teacher_mask & mask_clean_risk]
-    teacher_safe_all = train_df[teacher_mask & (train_df['binary_label'] == 0)]
-    
-    ref_pass2_df = pd.concat([teacher_risk_clean, teacher_safe_all])
-    ref_pass2_vecs = np.stack(ref_pass2_df['embedding_vec'].values)
-    ref_pass2_labels = ref_pass2_df['binary_label'].values
-    
-    print(f"Pass 2 Teacher Index: {len(ref_pass2_df)} (Cleaned Risk + All Safe, Non-Overlapping)")
-    
-    query_safe_vecs = np.stack(train_safe_all_full['embedding_vec'].values)
-    
-    density_scores_pass2 = calculate_risk_density(
-        query_embeddings=query_safe_vecs,
-        reference_embeddings=ref_pass2_vecs,
-        reference_labels=ref_pass2_labels,
-        k=NEIGHBOR_K
-    )
-    train_safe_all_full['risk_density_p2'] = density_scores_pass2
-    
-    # E. Margin-Based Filtering + Hard Negative Mining
-    # 1. Safe Prototypes: Low Density
-    safe_prototypes = train_safe_all_full[train_safe_all_full['risk_density_p2'] < SAFE_DENSITY_THRESHOLD]
-    
-    # 2. Hard Negatives: Medium Density (The "Radioactive Zone" we previously dropped)
-    # We include these to teach the model to distinguish ambiguous safe content from risk.
-    # We cap at UPPER_BOUND to avoid mislabeled data (Safe items that look VERY Risky might actually be Risk).
-    safe_hard_negatives = train_safe_all_full[
-        (train_safe_all_full['risk_density_p2'] >= SAFE_DENSITY_THRESHOLD) & 
-        (train_safe_all_full['risk_density_p2'] < HARD_NEGATIVE_UPPER_BOUND)
-    ]
-    
-    print(f"Safe Prototypes (Density < {SAFE_DENSITY_THRESHOLD}): {len(safe_prototypes)}")
-    print(f"Safe Hard Negatives ({SAFE_DENSITY_THRESHOLD} <= Density < {HARD_NEGATIVE_UPPER_BOUND}): {len(safe_hard_negatives)}")
-    
-    # F. Ratio-Based Balancing (1 Risk : 5 Safe)
-    print(f"\n--- Compiling Dataset with Enforced 1:5 Ratio ---")
-    
-    # 1. Determine Target Safe Count
-    risk_count = len(train_risk_clean_full)
-    target_safe_count = risk_count * 5
-    print(f"Target Safe Count: {target_safe_count} (Risk Count: {risk_count})")
-    
-    # 2. Prioritize Hard Negatives (Density-Based)
-    # These are semantically close to risk (e.g. "I lost my job")
-    safe_density_negatives = safe_hard_negatives
-    
-    # 3. Prioritize Sentiment Hard Negatives (Probe-Based)
-    # These are linguistically sad but semantically distinct (e.g. "I hate this movie")
-    
-    # Calculate scores for all prototypes
-    def get_emotion_score(row, target):
-        scores = row.get('emotion_scores', {})
-        # Handle if scores is a string (JSON string) or dict
-        if isinstance(scores, str):
-            import json
-            try:
-                scores = json.loads(scores)
-            except:
-                scores = {}
-                
-        if isinstance(scores, dict):
-            return float(scores.get(target, 0.0))
-            
-        # Fallback to boolean labels if scores missing (legacy)
-        ems = row.get('predicted_emotions', [])
-        if isinstance(ems, list) and target in ems: return 1.0
-        return 0.0
+    if len(risk_df_clean_emotion) == 0:
+        print("Warning: All risk items removed by emotion filter! Reverting to original risk set (check data/thresholds).")
+        risk_df_clean_emotion = risk_df.copy()
 
-    safe_prototypes['neg_score'] = safe_prototypes.apply(lambda x: get_emotion_score(x, 'negative'), axis=1)
-    safe_prototypes['pos_score'] = safe_prototypes.apply(lambda x: get_emotion_score(x, 'positive'), axis=1)
+    # 2. Density Filtering (Self-Density)
+    print(f"Calculating Risk Self-Density (N={len(risk_df_clean_emotion)})...")
+    clean_risk_vecs = np.stack(risk_df_clean_emotion['embedding_vec'].values)
+    risk_density = calculate_density_faiss(clean_risk_vecs, clean_risk_vecs, k=NEIGHBOR_K)
+    risk_df_clean_emotion['density'] = risk_density
+    
+    clean_risk_df = risk_df_clean_emotion[risk_df_clean_emotion['density'] > RISK_DENSITY_THRESHOLD].copy()
+    print(f"Clean Risk (Density > {RISK_DENSITY_THRESHOLD}): {len(risk_df)} -> {len(clean_risk_df)}")
 
-    # Filter candidates (using a loose threshold since we will sort by score)
-    safe_sentiment_negatives = safe_prototypes[safe_prototypes['neg_score'] > 0.5]
-    safe_positives = safe_prototypes[safe_prototypes['pos_score'] > 0.5]
-
-    # 4. Fill the Quota
-    # Strategy: 
-    # - Keep ALL Density Negatives (Highest Value)
-    # - Fill 40% of remainder with Sentiment Negatives (Best First)
-    # - Fill 40% of remainder with Positives (Best First)
-    # - Fill rest with Random Neutral
+    # ==========================================================
+    # PHASE 2: SAFE SAMPLING (Sad/Happy/Neutral)
+    # ==========================================================
+    print("\n--- Phase 2: Safe Sampling & Hard Negative Mining ---")
     
-    selected_safes = [safe_density_negatives]
-    # Use index for tracking unique items to avoid duplicates
-    selected_indices = set(safe_density_negatives.index)
+    safe_df = train_df[train_df['binary_label'] == 0].copy()
+    safe_vecs = np.stack(safe_df['embedding_vec'].values)
     
-    current_count = len(safe_density_negatives)
-    remaining_quota = target_safe_count - current_count
+    print(f"Calculating Safe Self-Density (N={len(safe_df)})...")
+    safe_density = calculate_density_faiss(safe_vecs, safe_vecs, k=NEIGHBOR_K)
+    safe_df['density'] = safe_density
     
-    if remaining_quota > 0:
-        # Target Sub-Quotas
-        target_sent_neg = int(remaining_quota * 0.4)
-        target_pos = int(remaining_quota * 0.4)
-        
-        # Sample Sentiment Negatives (excluding already selected)
-        avail_sent_neg = safe_sentiment_negatives[~safe_sentiment_negatives.index.isin(selected_indices)]
-        
-        if len(avail_sent_neg) > target_sent_neg:
-            # Pick TOP SCORES
-            picked = avail_sent_neg.nlargest(target_sent_neg, 'neg_score')
-            if picked['neg_score'].nunique() == 1:
-                 picked = picked.sample(frac=1, random_state=42) # Shuffle if ties
-            
-            selected_safes.append(picked)
-            selected_indices.update(picked.index)
-            remaining_quota -= target_sent_neg
-        else:
-            selected_safes.append(avail_sent_neg)
-            selected_indices.update(avail_sent_neg.index)
-            remaining_quota -= len(avail_sent_neg)
-            
-        # Sample Positives (excluding already selected)
-        avail_pos = safe_positives[~safe_positives.index.isin(selected_indices)]
-        
-        if len(avail_pos) > target_pos:
-            # Pick TOP SCORES
-            picked = avail_pos.nlargest(target_pos, 'pos_score')
-            if picked['pos_score'].nunique() == 1:
-                 picked = picked.sample(frac=1, random_state=42) # Shuffle if ties
-                 
-            selected_safes.append(picked)
-            selected_indices.update(picked.index)
-            remaining_quota -= target_pos
-        else:
-            selected_safes.append(avail_pos)
-            selected_indices.update(avail_pos.index)
-            remaining_quota -= len(avail_pos)
-            
-        # Fill rest with Random (Neutral/Ambiguous)
-        pool_remainder = safe_prototypes[~safe_prototypes.index.isin(selected_indices)]
-        
-        if len(pool_remainder) > remaining_quota:
-             selected_safes.append(pool_remainder.sample(n=remaining_quota, random_state=42))
-        else:
-             selected_safes.append(pool_remainder)
-
-    safe_combined = pd.concat(selected_safes).drop_duplicates()
+    safe_df['neg_score'] = safe_df.apply(lambda x: get_emotion_score(x, 'negative'), axis=1)
+    safe_df['pos_score'] = safe_df.apply(lambda x: get_emotion_score(x, 'positive'), axis=1)
     
-    # Combine Final
-    final_train = pd.concat([
-        train_risk_clean_full,
-        safe_combined
+    # 1. Sad Safe (Hard Negatives)
+    sad_safe = safe_df[safe_df['neg_score'] > 0.5].copy()
+    
+    # 2. Happy Safe
+    happy_safe = safe_df[safe_df['pos_score'] > 0.5].copy()
+    
+    # 3. Neutral Safe (High Density Safe)
+    special_indices = set(sad_safe.index) | set(happy_safe.index)
+    neutral_safe_candidates = safe_df[~safe_df.index.isin(special_indices)]
+    neutral_safe = neutral_safe_candidates[neutral_safe_candidates['density'] > SAFE_DENSITY_THRESHOLD].copy()
+    
+    print(f"Safe Breakdown:")
+    print(f" - Sad Safe (Neg > 0.5): {len(sad_safe)}")
+    print(f" - Happy Safe (Pos > 0.5): {len(happy_safe)}")
+    print(f" - Neutral Safe (Density > {SAFE_DENSITY_THRESHOLD}): {len(neutral_safe)}")
+    
+    # OVERSAMPLING
+    print("Applying Oversampling Multipliers...")
+    sad_safe_oversampled = pd.concat([sad_safe] * 10)
+    happy_safe_oversampled = pd.concat([happy_safe] * 5)
+    
+    print(f" - Sad Safe (10x): {len(sad_safe_oversampled)}")
+    print(f" - Happy Safe (5x): {len(happy_safe_oversampled)}")
+    
+    final_safe = pd.concat([
+        sad_safe_oversampled,
+        happy_safe_oversampled,
+        neutral_safe
     ])
     
-    # Shuffle
-    final_train = final_train.sample(frac=1, random_state=42).reset_index(drop=True)
+    final_train = pd.concat([clean_risk_df, final_safe])
+    final_train = final_train.sample(frac=1, random_state=SEED).reset_index(drop=True)
     
-    print(f"Final Training Distribution (RATIO ENFORCED):")
-    print(f" - Risk Prototypes: {len(train_risk_clean_full)}")
-    print(f" - Safe Combined: {len(safe_combined)}")
-    print(f" - Ratio: 1 Risk : {len(safe_combined)/len(train_risk_clean_full):.1f} Safe")
+    print(f"\nFinal Training Set: {len(final_train)} rows")
+    print(f" - Risk: {len(clean_risk_df)}")
+    print(f" - Safe: {len(final_safe)}")
     
     # ==========================================================
-    # PHASE 1.5: GENERATE SOFT LABELS (EMBEDDING DISTILLATION)
+    # PHASE 3: SOFT LABELS
     # ==========================================================
-    print("\n--- Phase 1.5: Generating Soft Labels (Weighted k-NN) ---")
+    print("\n--- Phase 3: Generating Soft Labels (Teacher Index) ---")
     
-    if 'subreddit' not in teacher_df.columns:
-        print("Error: 'subreddit' column missing. Cannot generate soft labels.")
+    if 'subreddit' not in final_train.columns:
+        print("Error: 'subreddit' missing.")
         sys.exit(1)
-
-    # Prepare Subreddit Map
-    unique_subreddits = sorted(train_df['subreddit'].unique())
-    final_subreddit_to_id = {sub: i for i, sub in enumerate(unique_subreddits)}
-    print(f"Found {len(unique_subreddits)} unique subreddits.")
+        
+    unique_subreddits = sorted(df_all['subreddit'].unique())
+    subreddit_map = {sub: i for i, sub in enumerate(unique_subreddits)}
     
-    def compute_soft_labels_knn(query_df, teacher_df, n_neighbors=50, temperature=0.3, subreddit_map=None):
-        """
-        Computes soft labels using Weighted k-NN.
-        Returns: List of probability distributions (size: N_samples x N_classes).
-        """
-        print(f"Computing k-NN Soft Labels (k={n_neighbors}, temp={temperature})...")
-        
-        # 1. Prepare Vectors
-        query_vecs = np.stack(query_df['embedding_vec'].values)
-        teacher_vecs = np.stack(teacher_df['embedding_vec'].values)
-        teacher_subs = teacher_df['subreddit'].map(subreddit_map).values  # Map to Int IDs
-        num_classes = len(subreddit_map)
-
-        # 2. Build Index & Query
-        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='cosine', n_jobs=-1)
-        nbrs.fit(teacher_vecs)
-        distances, indices = nbrs.kneighbors(query_vecs)
-        
-        # 3. Compute Soft Labels
-        soft_labels = []
-        
-        for i in range(len(query_vecs)):
-            dists = distances[i]
-            neighbor_indices = indices[i]
-            neighbor_classes = teacher_subs[neighbor_indices]
-            
-            # Inverse Distance Weighting (Add epsilon)
-            weights = 1.0 / (dists + 1e-6)
-            
-            # Aggregate weights by class
-            class_scores = np.zeros(num_classes)
-            np.add.at(class_scores, neighbor_classes, weights)
-            
-            # Apply Temperature Scaling to the aggregated scores (logits)
-            logits = class_scores / temperature
-            
-            # Softmax
-            exp_logits = np.exp(logits - np.max(logits)) # Stability
-            probs = exp_logits / np.sum(exp_logits)
-            
-            soft_labels.append(probs.tolist())
-            
-        return soft_labels
-
-    # Apply to Final Train and Test using the teacher set
-    # Using T=1.0 as advised to preserve dark knowledge (relationships between classes)
-    final_train['soft_label'] = compute_soft_labels_knn(final_train, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=final_subreddit_to_id)
-    test_df['soft_label'] = compute_soft_labels_knn(test_df, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=final_subreddit_to_id)
-
-    # Also save the subreddit mapping
-    import json
+    soft_labels_train = compute_soft_labels_faiss(
+        query_df=final_train,
+        teacher_df=final_train,
+        n_neighbors=50,
+        temperature=1.0,
+        subreddit_map=subreddit_map
+    )
+    final_train['soft_label'] = soft_labels_train
+    
+    soft_labels_test = compute_soft_labels_faiss(
+        query_df=test_df,
+        teacher_df=final_train,
+        n_neighbors=50,
+        temperature=1.0,
+        subreddit_map=subreddit_map
+    )
+    test_df['soft_label'] = soft_labels_test
+    
     mapping_file = os.path.join(DATA_DIR, "subreddit_mapping.json")
     with open(mapping_file, "w") as f:
-        json.dump(final_subreddit_to_id, f)
-    print(f"Saved subreddit mapping to {mapping_file}")
-
-    # Save Risk Indices for Hierarchical Loss
-    # Identify risk subreddits from the risk dataframe (using the clean filtered set)
-    risk_subs = set(train_risk_clean_full['subreddit'].unique())
-    risk_indices = [idx for sub, idx in final_subreddit_to_id.items() if sub in risk_subs]
-    
-    risk_indices_file = os.path.join(DATA_DIR, "risk_indices.json")
-    with open(risk_indices_file, "w") as f:
+        json.dump(subreddit_map, f)
+        
+    risk_subs = set(clean_risk_df['subreddit'].unique())
+    risk_indices = [idx for sub, idx in subreddit_map.items() if sub in risk_subs]
+    with open(os.path.join(DATA_DIR, "risk_indices.json"), "w") as f:
         json.dump(risk_indices, f)
-    print(f"Saved {len(risk_indices)} risk indices to {risk_indices_file}")
-
+        
     # ==========================================================
-    # PHASE 2: PROCESS TEST DATA
+    # EXPORT
     # ==========================================================
-    print("\n--- Phase 2: Processing Test Data ---")
-    
-    teacher_vecs = np.stack(final_train['embedding_vec'].values)
-    teacher_labels = final_train['binary_label'].values
-    test_vecs = np.stack(test_df['embedding_vec'].values)
-    
-    test_density = calculate_risk_density(
-        query_embeddings=test_vecs,
-        reference_embeddings=teacher_vecs,
-        reference_labels=teacher_labels,
-        k=NEIGHBOR_K
-    )
-    test_df['risk_density'] = test_density
-    
-    print(f"Test Set Size: {len(test_df)}")
-    
-    # ==========================================================
-    # PHASE 3: EXPORT
-    # ==========================================================
-    print("\n--- Exporting Datasets ---")
+    print("\n--- Exporting ---")
     
     def save_jsonl(dataframe, filename):
         out = dataframe.rename(columns={'input': 'text'})
-        # Save soft labels as the primary label for training
-        # We also keep the hard 'binary_label' for evaluation metrics if needed, but the model trainer
-        # will look for 'label' or 'labels'. 
-        # We will name the soft label column 'label' so the HuggingFace trainer picks it up automatically.
-        # BUT: HF Trainer expects 'label' to be int for classification or float for regression.
-        # For Multi-Label/Soft-Target, we usually pass a float tensor.
-        
-        # Let's keep 'label' as the binary int for backward compatibility/metrics
-        # and 'soft_label' as the distribution.
-        # We will modify the Training script to look for 'soft_label'.
-        
         out['label'] = out['binary_label'].astype(int)
         
-        # Ensure soft_label is included
-        cols_to_save = ['text', 'label', 'soft_label']
-        if 'subreddit' in out.columns:
-            cols_to_save.append('subreddit')
-            
-        out[cols_to_save].to_json(filename, orient='records', lines=True)
-        print(f"Saved {len(out)} rows to {filename}")
-
+        cols = ['text', 'label', 'soft_label']
+        if 'subreddit' in out.columns: cols.append('subreddit')
+        
+        out[cols].to_json(filename, orient='records', lines=True)
+        print(f"Saved {len(out)} to {filename}")
+        
     save_jsonl(final_train, TRAIN_FILE)
     save_jsonl(test_df, TEST_FILE)
-    
     print("Done!")
 
 if __name__ == "__main__":

@@ -20,8 +20,8 @@ def main():
     
     # 1. Fetch Data
     print(f"Fetching from {REDDIT_TABLE}...")
-    # Risk table likely doesn't have predicted_emotions
-    df_risk = fetch_data(REDDIT_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id"])
+    # Attempt to fetch emotion scores if available, even for risk table
+    df_risk = fetch_data(REDDIT_TABLE, columns=["subreddit", "embedding", "input", "post_id", "chunk_id", "emotion_scores"])
     df_risk['dataset_type'] = REDDIT_TABLE
     
     print(f"Fetching from {CONTROL_TABLE}...")
