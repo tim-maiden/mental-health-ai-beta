@@ -169,8 +169,10 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
         last_id = data[-1]['id']
         total_fetched += len(data)
         
-        if start_id is None and total_fetched % (fetch_size * 10) == 0:
-             print(f"   -> Fetched {total_fetched} rows so far (Last ID: {last_id})...")
+        # Print progress every ~10k rows
+        if total_fetched % (fetch_size * 5) == 0:
+             worker_tag = f"[Range start {start_id}]" if start_id else "[Single Thread]"
+             print(f"   -> {worker_tag} Fetched {total_fetched} rows so far (Current ID: {last_id})...")
     
     if start_id is None:
         print(f"\nTotal rows from {table_name}: {len(all_data)}")
