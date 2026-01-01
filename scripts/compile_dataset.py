@@ -309,22 +309,29 @@ def main():
         json.dump(risk_indices, f)
         
     # ==========================================================
-    # EXPORT
+    # EXPORT (Switch to Parquet)
     # ==========================================================
-    print("\n--- Exporting ---")
+    print("\n--- Exporting to Parquet ---")
     
-    def save_jsonl(dataframe, filename):
+    # Replace save_jsonl with this:
+    def save_parquet(dataframe, filename):
+        # 1. Prepare columns
         out = dataframe.rename(columns={'input': 'text'})
         out['label'] = out['binary_label'].astype(int)
         
         cols = ['text', 'label', 'soft_label']
-        if 'subreddit' in out.columns: cols.append('subreddit')
+        if 'subreddit' in out.columns: 
+            cols.append('subreddit')
         
-        out[cols].to_json(filename, orient='records', lines=True)
-        print(f"Saved {len(out)} to {filename}")
+        # 2. Change extension to .parquet
+        parquet_filename = filename.replace('.jsonl', '.parquet')
         
-    save_jsonl(final_train, TRAIN_FILE)
-    save_jsonl(test_df, TEST_FILE)
+        # 3. Save fast
+        out[cols].to_parquet(parquet_filename, index=False, engine='pyarrow', compression='snappy')
+        print(f"Saved {len(out)} rows to {parquet_filename}")
+        
+    save_parquet(final_train, TRAIN_FILE)
+    save_parquet(test_df, TEST_FILE)
     print("Done!")
 
 if __name__ == "__main__":
