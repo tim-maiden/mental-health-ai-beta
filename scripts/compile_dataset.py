@@ -44,6 +44,10 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     query_vecs = query_vecs.astype(np.float32)
     ref_vecs = ref_vecs.astype(np.float32)
     
+    # ADD THIS: L2 Normalize vectors to ensure Inner Product == Cosine Similarity
+    faiss.normalize_L2(query_vecs)
+    faiss.normalize_L2(ref_vecs) 
+    
     print(f"Build FAISS Index (d={d}, ref_size={len(ref_vecs)})...")
     
     # Setup Index (Inner Product = Cosine if normalized)
@@ -77,6 +81,11 @@ def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=
     
     query_vecs = np.stack(query_df['embedding_vec'].values).astype(np.float32)
     teacher_vecs = np.stack(teacher_df['embedding_vec'].values).astype(np.float32)
+    
+    # L2 Normalize for Cosine Similarity
+    faiss.normalize_L2(query_vecs)
+    faiss.normalize_L2(teacher_vecs)
+    
     teacher_subs = teacher_df['subreddit'].map(subreddit_map).values.astype(int)
     num_classes = len(subreddit_map)
     d = teacher_vecs.shape[1]
