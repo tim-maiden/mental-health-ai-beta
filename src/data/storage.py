@@ -234,10 +234,14 @@ def get_id_range(table_name):
         print(f"Error getting ID range for {table_name}: {e}")
         return 0, 0
 
-def fetch_data_parallel(table_name, columns=None, num_workers=30):
+def fetch_data_parallel(table_name, columns=None, num_workers=30, chunk_callback=None):
     """
     Fetches data from Supabase in parallel chunks.
     Faster for large datasets (e.g., >100k rows) by utilizing network bandwidth.
+    
+    Args:
+        chunk_callback (callable): If provided, called with each df_chunk as it arrives. 
+                                   Disables returning the full concatenated DataFrame.
     """
     print(f"Starting parallel fetch for {table_name} with {num_workers} workers...")
     
@@ -283,10 +287,20 @@ def fetch_data_parallel(table_name, columns=None, num_workers=30):
             r_range = future_to_range[future]
             try:
                 df_chunk = future.result()
-                results.append(df_chunk)
+                
+                if chunk_callback:
+                    chunk_callback(df_chunk)
+                    # Don't store in results to save memory
+                else:
+                    results.append(df_chunk)
+                    
                 print(f"      -> Chunk {r_range} finished: {len(df_chunk)} rows")
             except Exception as exc:
                 print(f"      -> Chunk {r_range} generated an exception: {exc}")
+
+    if chunk_callback:
+        print("   -> Streaming complete (no return value).")
+        return pd.DataFrame()
 
     if not results:
         return pd.DataFrame()
