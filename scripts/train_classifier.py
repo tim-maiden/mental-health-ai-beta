@@ -54,7 +54,7 @@ def main():
         print("Falling back to offline mode. Run `wandb sync` later to upload logs.")
         wandb.init(project=WANDB_PROJECT, mode="offline")
 
-    dataset = load_dataset("json", data_files={
+    dataset = load_dataset("parquet", data_files={
         "train": TRAIN_FILE,
         "test": TEST_FILE
     })

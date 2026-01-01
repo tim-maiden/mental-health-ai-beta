@@ -81,8 +81,8 @@ SNAPSHOTS_DIR = os.path.join(DATA_DIR, "snapshots")
 # UPDATED: Use S3 Parquet to avoid local disk exhaustion
 RAW_DATA_FILE = f"s3://{S3_BUCKET_NAME}/data/latest/raw_data.parquet"
 
-TRAIN_FILE = os.path.join(DATA_DIR, "final_train.jsonl")
-TEST_FILE = os.path.join(DATA_DIR, "test.jsonl")
+TRAIN_FILE = os.path.join(DATA_DIR, "final_train.parquet")
+TEST_FILE = os.path.join(DATA_DIR, "test.parquet")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
