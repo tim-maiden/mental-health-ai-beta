@@ -144,16 +144,18 @@ def main():
         sys.exit(1)
         
     # 1. Load Data
-    print(f"Loading data from {RAW_DATA_FILE}...")
+    print(f"Loading data from Supabase via CSV Stream...")
+    from src.data.storage import fetch_data
     
-    # Load from S3 directly
-    df_all = pd.read_parquet(
-        RAW_DATA_FILE, 
-        storage_options={
-            "key": os.getenv("AWS_ACCESS_KEY_ID"),
-            "secret": os.getenv("AWS_SECRET_ACCESS_KEY")
-        }
-    )
+    # Fetch Risk
+    print("Fetching Risk Data...")
+    df_risk = fetch_data("reddit_mental_health_embeddings", columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"])
+    
+    # Fetch Safe
+    print("Fetching Safe Data...")
+    df_safe = fetch_data("reddit_safe_embeddings", columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"])
+    
+    df_all = pd.concat([df_risk, df_safe], ignore_index=True)
     
     if 'post_id' not in df_all.columns:
         df_all['post_id'] = df_all.index # Fallback
