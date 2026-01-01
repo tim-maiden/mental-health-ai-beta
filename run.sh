@@ -111,20 +111,27 @@ else
     # [NEW] Step 2.5: Backup Compiled Data
     log "--- Uploading Compiled Data to S3 ---"
     
+    # Determine Data Directory Path
+    if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+        DATA_DIR_PATH="/workspace/data"
+    else
+        DATA_DIR_PATH="data"
+    fi
+    
     # Create temp dir for specific artifacts we want to version (to avoid uploading raw pickles)
-    mkdir -p data/compiled_artifacts
-    cp data/final_train.parquet data/compiled_artifacts/ 2>/dev/null || true
-    cp data/test.parquet data/compiled_artifacts/ 2>/dev/null || true
-    cp data/subreddit_mapping.json data/compiled_artifacts/ 2>/dev/null || true
+    mkdir -p "$DATA_DIR_PATH/compiled_artifacts"
+    cp "$DATA_DIR_PATH/final_train.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
+    cp "$DATA_DIR_PATH/test.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
+    cp "$DATA_DIR_PATH/subreddit_mapping.json" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
     
     # Upload to timestamped folder (Versioning for reproducibility)
-    python scripts/upload_model.py --local-dir "data/compiled_artifacts" --s3-prefix "data/${TIMESTAMP}"
+    python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/${TIMESTAMP}"
     
     # Upload to 'latest' folder (Caching for speed)
-    python scripts/upload_model.py --local-dir "data/compiled_artifacts" --s3-prefix "data/latest"
+    python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/latest"
     
     # Cleanup
-    rm -rf data/compiled_artifacts
+    rm -rf "$DATA_DIR_PATH/compiled_artifacts"
 fi
 
 # Step 3: Train Teacher Model (DeBERTa)
