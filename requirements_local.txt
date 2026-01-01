@@ -15,7 +15,7 @@ transformers==4.40.2
 torch>=2.6.0
 wandb
 boto3
-faiss-gpu-cu12
+faiss-cpu
 pyarrow
 s3fs>=2024.6.0
 fsspec>=2024.6.0

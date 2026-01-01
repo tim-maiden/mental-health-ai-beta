@@ -64,8 +64,13 @@ if [ "$DEPLOY_ENV" == "local" ]; then
         python3.12 -m venv venv
         source venv/bin/activate
         
-        log "Installing dependencies..."
-        pip install -r requirements.txt
+        log "Installing dependencies (Local/Mac)..."
+        if [ -f "requirements_local.txt" ]; then
+             pip install -r requirements_local.txt
+        else
+             log "Warning: requirements_local.txt not found, falling back to requirements.txt"
+             pip install -r requirements.txt
+        fi
     else
         source venv/bin/activate
     fi
