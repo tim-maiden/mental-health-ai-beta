@@ -173,7 +173,8 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
         if total_fetched % (fetch_size * 5) == 0:
              worker_tag = f"[Range start {start_id}]" if start_id else "[Single Thread]"
              print(f"   -> {worker_tag} Fetched {total_fetched} rows so far (Current ID: {last_id})...")
-    
+
+    # Only print this for single-threaded calls (fetch_data), parallel workers are silent to avoid spam
     if start_id is None:
         print(f"\nTotal rows from {table_name}: {len(all_data)}")
     
@@ -181,9 +182,12 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
     
     # Process embeddings
     if 'embedding' in df.columns and not df.empty:
+        # Use a simpler message for parallel workers
         if start_id is None:
             print(f"Processing {len(df)} embeddings (converting from list/string to numpy)...")
-        
+        else:
+            print(f"   -> [Range start {start_id}] Fetched all rows. Processing embeddings...", end='\r')
+
         # 1. Convert to list of values first to avoid pandas overhead in loop
         raw_values = df['embedding'].values
         processed_values = [None] * len(raw_values)

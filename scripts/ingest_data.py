@@ -52,7 +52,7 @@ def main():
     # Filter columns before saving to reduce RAM/Network usage
     keep_cols = [
         'post_id', 'input', 'embedding', 'dataset_type', 
-        'subreddit', 'author', 'emotion_scores'
+        'subreddit', 'author', 'emotion_scores', 'predicted_emotions'
     ]
     # Only keep columns that actually exist in the dataframe
     final_cols = [c for c in keep_cols if c in df_all.columns]

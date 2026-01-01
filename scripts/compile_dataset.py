@@ -22,7 +22,7 @@ from src.config import (
     TEST_FILE,
     DATA_DIR
 )
-from src.data.storage import fetch_data_parallel
+# from src.data.storage import fetch_data_parallel
 
 # --- CONFIGURATION ---
 NEIGHBOR_K = 50 # Increased for better density estimation on large data
@@ -145,34 +145,31 @@ def main():
         sys.exit(1)
         
     # 1. Load Data
-    print(f"Loading data via Parallel Fetch from Supabase...")
+    print(f"Loading data via S3 Parquet Snapshot: {RAW_DATA_FILE}...")
 
-    # Define tables
-    REDDIT_TABLE = "reddit_mental_health_embeddings"
-    CONTROL_TABLE = "reddit_safe_embeddings"
+    # Load from S3 directly
+    try:
+        storage_options = {
+            "key": os.getenv("AWS_ACCESS_KEY_ID"),
+            "secret": os.getenv("AWS_SECRET_ACCESS_KEY"),
+            "client_kwargs": {"region_name": os.getenv("AWS_REGION", "us-east-1")}
+        }
+        df_all = pd.read_parquet(RAW_DATA_FILE, storage_options=storage_options)
+        print(f"Loaded {len(df_all)} rows from S3.")
+    except Exception as e:
+        print(f"Error loading S3 snapshot: {e}")
+        print("Tip: Run 'python scripts/ingest_data.py' to generate the snapshot first.")
+        sys.exit(1)
+
+    # Reconstruct embedding vectors from lists -> numpy arrays (float32)
+    # Parquet loads lists as standard Python lists, FAISS needs contiguous numpy arrays
+    print("Reconstructing embedding vectors...")
+    df_all['embedding_vec'] = df_all['embedding'].apply(lambda x: np.array(x, dtype=np.float32))
     
-    # Fetch in parallel
-    print(f"Fetching {REDDIT_TABLE}...")
-    df_risk = fetch_data_parallel(
-        REDDIT_TABLE, 
-        columns=["subreddit", "embedding", "input", "post_id", "author", "emotion_scores"],
-        num_workers=5
-    )
-    
-    print(f"Fetching {CONTROL_TABLE}...")
-    df_control = fetch_data_parallel(
-        CONTROL_TABLE, 
-        columns=["subreddit", "embedding", "input", "post_id", "author", "predicted_emotions", "emotion_scores"],
-        num_workers=5
-    )
-    
-    print("Combining datasets...")
-    df_all = pd.concat([df_risk, df_control], ignore_index=True)
-    
-    if 'post_id' not in df_all.columns:
-        df_all['post_id'] = df_all.index # Fallback
-        
-    df_all['binary_label'] = df_all['dataset_type'].apply(lambda x: 1 if 'mental_health' in str(x) else 0)
+    # Ensure binary label exists (1 if risk, 0 if safe)
+    # df_all should already have 'dataset_type' from ingest_data.py
+    if 'binary_label' not in df_all.columns:
+        df_all['binary_label'] = df_all['dataset_type'].apply(lambda x: 1 if 'mental_health' in str(x) else 0)
 
     # 2. Split Train/Test by AUTHOR
     print("Splitting by Author...")
