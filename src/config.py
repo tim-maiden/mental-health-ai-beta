@@ -22,7 +22,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # --- AWS CONFIGURATION ---
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION", "us-west-2") #Default to Oregon
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 
 if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
@@ -36,7 +36,7 @@ SEED = 42
 
 # --- DATASET COMPILATION ---
 NEIGHBOR_K = 50 # Increased for better density estimation on large data
-RISK_DENSITY_THRESHOLD = 0.60 # High Purity for Risk
+RISK_DENSITY_THRESHOLD = 0.45 # Relaxed to recover long-tail risk
 SAFE_DENSITY_THRESHOLD = 0.40 # High Purity for Safe (Self-Density)
 HIGH_EMOTION_THRESHOLD = 0.7
 LOW_EMOTION_THRESHOLD = 0.3
