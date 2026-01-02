@@ -149,7 +149,7 @@ def get_emotion_score(row, target):
     return 0.0
 
 def main():
-    print("--- Starting GPU-Accelerated Dataset Compilation (Abundance Strategy) ---")
+    print("--- Starting GPU-Accelerated Dataset Compilation ---")
     
     if not FAISS_AVAILABLE:
         print("Error: FAISS is required. Install faiss-gpu or faiss-cpu.")
