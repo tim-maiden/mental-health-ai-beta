@@ -3,6 +3,8 @@ import sys
 import pandas as pd
 import numpy as np
 import json
+import pyarrow.parquet as pq
+import s3fs
 from sklearn.model_selection import train_test_split
 
 # Import FAISS (GPU-accelerated k-NN)
@@ -156,25 +158,52 @@ def main():
     # 1. Load Data
     print(f"Loading data via S3 Parquet Snapshot: {RAW_DATA_FILE}...")
 
-    # Load from S3 directly
     try:
-        storage_options = {
-            "key": os.getenv("AWS_ACCESS_KEY_ID"),
-            "secret": os.getenv("AWS_SECRET_ACCESS_KEY"),
-            "client_kwargs": {"region_name": os.getenv("AWS_REGION", "us-east-1")}
-        }
-        df_all = pd.read_parquet(RAW_DATA_FILE, storage_options=storage_options)
-        print(f"Loaded {len(df_all)} rows from S3.")
+        # SETUP S3 FILESYSTEM
+        fs = s3fs.S3FileSystem(
+            key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            client_kwargs={"region_name": os.getenv("AWS_REGION", "us-east-1")}
+        )
+        
+        # PARSE S3 PATH
+        # Remove s3:// prefix if present, as s3fs expects 'bucket/key'
+        s3_path = RAW_DATA_FILE.replace("s3://", "")
+        
+        # READ AS ARROW TABLE (Efficient, Zero-Copy)
+        table = pq.read_table(s3_path, filesystem=fs)
+        print(f"Loaded Arrow Table: {table.num_rows} rows.")
+
+        # EFFICIENT EMBEDDING CONVERSION (Arrow -> Numpy Matrix)
+        # This avoids creating 3.7 billion Python float objects (~100GB RAM)
+        print("Reconstructing embedding vectors (High-Performance Mode)...")
+        
+        # Extract flat values from the ListArray
+        emb_column = table['embedding']
+        if hasattr(emb_column, 'combine_chunks'):
+             emb_column = emb_column.combine_chunks()
+        
+        # Reshape flat array to (N, 1536) matrix
+        # Note: This is nearly instant and uses minimal extra RAM
+        flattened_data = emb_column.values.to_numpy()
+        matrix = flattened_data.reshape(-1, 1536)
+        
+        # CONVERT METADATA TO PANDAS
+        # We drop the heavy 'embedding' column before converting to Pandas
+        metadata_cols = [c for c in table.column_names if c != 'embedding']
+        df_all = table.select(metadata_cols).to_pandas()
+        
+        # ASSIGN EMBEDDINGS
+        # Create a Series of numpy arrays (much lighter than lists of floats)
+        df_all['embedding_vec'] = list(matrix)
+        
+        print(f"Loaded {len(df_all)} rows successfully.")
+
     except Exception as e:
         print(f"Error loading S3 snapshot: {e}")
-        print("Tip: Run 'python scripts/ingest_data.py' to generate the snapshot first.")
+        # print("Tip: Run 'python scripts/ingest_data.py' to generate the snapshot first.") # Optional tip
         sys.exit(1)
 
-    # Reconstruct embedding vectors from lists -> numpy arrays (float32)
-    # Parquet loads lists as standard Python lists, FAISS needs contiguous numpy arrays
-    print("Reconstructing embedding vectors...")
-    df_all['embedding_vec'] = df_all['embedding'].apply(lambda x: np.array(x, dtype=np.float32))
-    
     # Ensure binary label exists (1 if risk, 0 if safe)
     # df_all should already have 'dataset_type' from ingest_data.py
     if 'binary_label' not in df_all.columns:
