@@ -262,13 +262,24 @@ def main():
     print(f" - Happy Safe (Pos > 0.5): {len(happy_safe)}")
     print(f" - Neutral Safe (Density > {SAFE_DENSITY_THRESHOLD}): {len(neutral_safe)}")
     
-    # OVERSAMPLING
-    print("Applying Oversampling Multipliers...")
-    sad_safe_oversampled = pd.concat([sad_safe] * 10)
-    happy_safe_oversampled = pd.concat([happy_safe] * 5)
+    # OVERSAMPLING (ADJUSTED STRATEGY)
+    print("Applying Adjusted Oversampling Multipliers...")
     
-    print(f" - Sad Safe (10x): {len(sad_safe_oversampled)}")
-    print(f" - Happy Safe (5x): {len(happy_safe_oversampled)}")
+    # Reduced from 10 to 3
+    sad_safe_oversampled = pd.concat([sad_safe] * 3)
+    
+    # Reduced from 5 to 2
+    happy_safe_oversampled = pd.concat([happy_safe] * 2)
+    
+    print(f" - Sad Safe (3x): {len(sad_safe_oversampled)}")
+    print(f" - Happy Safe (2x): {len(happy_safe_oversampled)}")
+    
+    # CAP NEUTRAL SAFE
+    # We don't need 850k easy negatives. Let's match the Risk count.
+    target_neutral_count = len(clean_risk_df)
+    if len(neutral_safe) > target_neutral_count:
+        print(f" - Capping Neutral Safe ({len(neutral_safe)} -> {target_neutral_count})...")
+        neutral_safe = neutral_safe.sample(n=target_neutral_count, random_state=SEED)
     
     final_safe = pd.concat([
         sad_safe_oversampled,
