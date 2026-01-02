@@ -272,7 +272,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
             df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False)
             
             # Normalize Columns
-            # User requirement: author, created_utc, score, selftext, subreddit, title
+            # Required columns: author, created_utc, score, selftext, subreddit, title
             
             # Check for essential content columns
             if 'selftext' not in df.columns:
@@ -327,7 +327,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
                     if current_count >= MAX_POSTS_PER_AUTHOR:
                         continue # Skip power users / helpers
                     
-                    # Increment author count upon encounter to enforce strict sampling caps.
+                    # Check author cap before yielding to optimize processing time.
                     author_counts[author] = current_count + 1
 
                 try:
@@ -541,7 +541,6 @@ def load_reddit_control_dataset():
                 continue # Skip empty bodies
 
             # Filter 2: Length (Token count of BODY only)
-            # encoding is already imported from src.core.clients
             if len(encoding.encode(body)) < 20:
                 continue # Skip bodies shorter than the single chunk length
             
@@ -559,7 +558,7 @@ def load_reddit_control_dataset():
             # Author
             author = str(row.get('author', 'unknown'))
 
-            # Author Cap Check (Global or Per-Subreddit? Global is better for actor split)
+            # Global Author Cap Check (Optimized for actor split)
             if author != 'unknown':
                 current_count = author_counts.get(author, 0)
                 if current_count >= MAX_POSTS_PER_AUTHOR:

@@ -99,7 +99,7 @@ def main():
                 current_offset += batch_len
                 continue
                 
-            # Partial overlap (shouldn't happen often with consistent batch sizes, but handle it)
+            # Handle partial overlap.
             if current_offset < processed_rows:
                 skip_in_batch = processed_rows - current_offset
                 print(f"Skipping first {skip_in_batch} rows of current batch...")
@@ -170,7 +170,7 @@ def main():
                     
                 except Exception as e:
                     print(f"Error uploading batch: {e}")
-                    # Don't crash entire script, try to save what we can or just break
+                    # Handle batch errors gracefully to preserve partial progress.
                     break
             
             total_chunks += len(df_batch)
