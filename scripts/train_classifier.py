@@ -73,11 +73,11 @@ def main():
     def preprocess_function(examples):
         # Tokenize
         tokenized = tokenizer(examples["text"], truncation=True, max_length=512)
-        # CRITICAL: Map 'soft_label' to 'labels' for the CustomTrainer
+        # Map 'soft_label' to 'labels' key to ensure CustomTrainer computes loss against soft targets.
         tokenized["labels"] = examples["soft_label"]
         return tokenized
 
-    # CRITICAL FIX: Remove the raw 'text' and old 'label' columns so Trainer doesn't get confused
+    # Remove raw text and original label columns to prevent DataCollator conflicts.
     tokenized_datasets = dataset.map(
         preprocess_function, 
         batched=True, 
@@ -94,7 +94,7 @@ def main():
     )
 
     # --- UNFREEZING: FULLY TRAINABLE ---
-    # We removed the freezing logic. The model is now fully trainable to overwrite pre-trained biases.
+    # Model is fully trainable (no layer freezing) to optimize for domain transfer.
     print("Model is FULLY TRAINABLE (No Freezing).")
 
     # Load Risk Indices

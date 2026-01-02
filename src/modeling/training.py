@@ -21,13 +21,7 @@ class CustomTrainer(Trainer):
         self.risk_indices = torch.tensor(risk_indices) if risk_indices else None
 
     def compute_loss(self, model, inputs, return_outputs=False):
-        # inputs.get("labels") usually contains the binary/hard labels
-        # We need the soft labels. The dataset mapper should have put them in "soft_labels"
-        # However, the DataCollator might rename columns or strict checking might apply.
-        # Ideally, we mapped 'soft_label' to 'labels' in the tokenization step if we want standard behavior.
-        
-        # We'll assume inputs["labels"] IS the soft distribution (Float Tensor)
-        # The training script must ensure this mapping happens.
+        # Assumes 'inputs["labels"]' contains the soft target distribution (Float Tensor), mapped during tokenization.
         
         labels = inputs.get("labels") # Expected: (batch, num_classes) probabilities
         outputs = model(**inputs)
@@ -124,9 +118,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         report_to="wandb",
         run_name=f"{model_id.split('/')[-1] if model_id else 'model'}-{train_size}samples",
         
-        # [FIX] H100 Optimizations
-        # Changed from "reduce-overhead" to "default" to avoid CUDAGraphs memory access errors
-        # "default" mode still provides significant speedups via TorchInductor without strict memory constraints
+        # H100 Optimization: Use "default" mode for torch_compile to prevent CUDAGraphs memory errors.
         torch_compile=is_cloud,
         torch_compile_mode="default" if is_cloud else None,
         tf32=is_cloud,  # Enable TensorFloat-32 for significant speedup
@@ -137,8 +129,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
 def compute_metrics(eval_pred):
     # This metric function is designed for BINARY classification.
     # For Multilabel/Soft-Label, we need to adapt.
-    # Assuming the first half of classes are "Safe" (or mapping provided).
-    # Actually, simpler: We calculate Top-1 Accuracy against the Soft Label's ArgMax.
+    # Calculate Top-1 Accuracy against the ArgMax of the soft label distribution.
     
     predictions, labels = eval_pred
     # Predictions: (batch, num_classes) logits

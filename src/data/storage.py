@@ -123,7 +123,7 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
     if columns is None:
         columns = ["subreddit", "embedding", "input", "post_id", "chunk_id"]
     
-    # We MUST fetch 'id' for cursor pagination to work reliably
+    # Ensure 'id' is included for cursor-based pagination
     query_columns = list(set(columns + ["id"]))
     select_str = ", ".join(query_columns)
     
@@ -192,10 +192,7 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
             # --- ACCUMULATION MODE (Legacy) ---
             all_data.extend(data)
         
-        # Update cursor (if callback, data is deleted, so we need to rely on response object if possible or temp store)
-        # Actually data is deleted from scope but `response.data` persists until next loop
-        # Wait, I deleted `data`. Let's save last_id first.
-        # Re-fetch last_id from the response directly before deleting
+        # Update cursor
         last_id = response.data[-1]['id'] 
         
         total_fetched += len(response.data)

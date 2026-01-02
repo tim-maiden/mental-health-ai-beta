@@ -79,7 +79,6 @@ DISTILLATION_EPOCHS = 5
 # Temperature scaling for confidence calibration
 # T < 1.0 sharpens predictions (makes them more confident)
 # T = 0.3 is optimized for margin-based classifiers that produce "squashed" probabilities
-# Rationale: Model learns correct direction but lacks hard negatives that force high-magnitude logits
 TEMPERATURE = 1.0
 
 # --- EMOTION DEFINITIONS ---

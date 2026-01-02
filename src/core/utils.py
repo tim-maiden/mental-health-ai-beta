@@ -45,9 +45,7 @@ def chunk_text_sliding_window(text: str, window_size: int = 3, stride: int = 1, 
         # but the last window covers the end.
     
     # 5. Enforce Min Tokens (Filter)
-    # If a chunk is too small, we might want to drop it, OR merge it?
-    # Guidance says: "Constraint: Enforce min_tokens on the window".
-    # I'll interpret this as: Filter out windows that are too small, unless it's the ONLY window.
+    # Filter out windows below 'min_tokens' unless it is the only generated chunk.
     
     final_chunks = []
     for chunk in chunks:
@@ -56,14 +54,8 @@ def chunk_text_sliding_window(text: str, window_size: int = 3, stride: int = 1, 
         if token_count >= min_tokens:
             final_chunks.append(chunk)
     
-    # Fallback: If we filtered everything out (all small), keep the longest one or merge all?
-    # If we have no final chunks but we had sentences, it means all windows were too short.
-    # In that case, we should probably just return the whole text as one chunk.
+    # Fallback: If all chunks are filtered (too short), return the original text as a single chunk.
     if not final_chunks and chunks:
-        # Check if the WHOLE text is long enough?
-        # Or just return the largest window we found?
-        # Let's return the original full text if it's substantial, or just the list of small chunks?
-        # Better: if nothing passed the filter, just return the whole text as a single chunk.
         final_chunks.append(text)
 
     return final_chunks

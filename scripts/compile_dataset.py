@@ -275,7 +275,7 @@ def main():
     print(f" - Happy Safe (2x): {len(happy_safe_oversampled)}")
     
     # CAP NEUTRAL SAFE
-    # We don't need 850k easy negatives. Let's match the Risk count.
+    # Cap neutral safe samples to match Risk count for class balance.
     target_neutral_count = len(clean_risk_df)
     if len(neutral_safe) > target_neutral_count:
         print(f" - Capping Neutral Safe ({len(neutral_safe)} -> {target_neutral_count})...")
@@ -344,9 +344,6 @@ def main():
         
         cols = ['text', 'label', 'soft_label']
         if 'subreddit' in out.columns: cols.append('subreddit')
-        
-        # Ensure soft_label is a list of floats (it should be already, but parquet is strict)
-        # PyArrow handles list columns well
         
         out[cols].to_parquet(filename, index=False)
         print(f"Saved {len(out)} to {filename}")

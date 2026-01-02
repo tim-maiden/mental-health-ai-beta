@@ -1,10 +1,7 @@
 import os
 import sys
 
-# CRITICAL: Add the project root (..) to sys.path BEFORE importing any src modules.
-# This ensures that when running `python scripts/ingest_data.py` (where CWD is project root)
-# OR `python ingest_data.py` (where CWD is scripts/), python can always find 'src'.
-# We get the absolute path of the directory containing this script, then go up one level.
+# Add project root to sys.path to ensure module resolution when running from scripts directory.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -63,8 +60,7 @@ def process_chunk(df_chunk, dataset_type):
             
     final_df = df_chunk[keep_cols]
     
-    # Define Schema explicitly to handle "predicted_emotions" mismatch
-    # (mental_health table has it as null, safe table has it as list<string>)
+    # Define explicit schema to unify 'predicted_emotions' type (List<String>) across different source tables.
     schema = pa.schema([
         ('post_id', pa.string()),
         ('input', pa.string()),
@@ -128,8 +124,7 @@ def main():
 
     print(f"Uploading to S3: {s3_path}...")
     
-    # Use pandas to read back (efficiently) and write to S3? 
-    # No, that defeats the purpose. Use boto3 or s3fs to upload the file directly.
+    # Upload raw Parquet file directly via S3FS to avoid Pandas read/write overhead.
     import s3fs
     fs = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY, client_kwargs={'region_name': AWS_REGION})
     

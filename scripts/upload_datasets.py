@@ -109,12 +109,7 @@ def main():
             batch_counter += 1
             print(f"\n--- Processing Global Batch {batch_counter} (Global Offset: {current_offset}) ---")
             
-            # We temporarily trick the uploader by overriding the progress file check 
-            # or we modify the uploader. 
-            # EASIER: We just call embed_and_upload but ensure we DON'T skip inside it.
-            # However, embed_and_upload loads progress internally and skips.
-            # TRICK: We can pass a unique table name alias or handle the upload manually here.
-            # BETTER: Let's use the underlying functions directly to avoid the conflict.
+            # Directly use embed_dataframe and supabase insert to avoid progress tracking conflicts in the batch loader.
             
             from src.data.storage import embed_dataframe, save_progress, load_progress, supabase
             import numpy as np

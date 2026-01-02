@@ -42,10 +42,7 @@ def load_wildchat_dataset(limit=5000):
     """Loads and processes the WildChat dataset (allenai/WildChat-1M)."""
     print(f"Loading allenai/WildChat-1M dataset (First {limit} conversations)...")
     # Load the dataset
-    # We can't easily limit 'load_dataset' for non-streaming unless we slice afterwards, 
-    # but streaming=True + taking N is efficient.
-    # However, to keep it simple with pandas, we can load it (lazy if possible) or just slice the df.
-    # The dataset is large, so let's try streaming to avoid memory issues if we only want a small slice.
+    # Load dataset in streaming mode to efficiently handle large file sizes.
     
     ds = load_dataset("allenai/WildChat-1M", split="train", streaming=True)
     
@@ -269,13 +266,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
             file_name = os.path.basename(file_path)
             
             # Date Filtering at File Level (Optimization)
-            # The raw files are named like 'anxiaug22.csv', 'depfeb21.csv', 'mhnov19.csv'
-            # We can try to filter files that are clearly out of range to save reading time.
-            # Range: Aug 2021 (08/21) to Aug 2022 (08/22)
-            # Years of interest: 2021, 2022.
-            # If a file has '19' or '20' or '18' in name, we might skip it.
-            # But relying on file names is risky if naming isn't consistent.
-            # However, we DO need to filter rows by created_utc regardless.
+            # Filter rows by 'created_utc' rather than relying on inconsistent filenames.
             
             # Read CSV
             df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False)
@@ -336,13 +327,7 @@ def yield_reddit_mental_health_dataset(batch_size=1000, sample_rate=1.0, limit=N
                     if current_count >= MAX_POSTS_PER_AUTHOR:
                         continue # Skip power users / helpers
                     
-                    # We increment here, assuming we will keep it. 
-                    # Note: Ideally we increment only if it passes downstream filters (date/content),
-                    # but incrementing here is safer to strictly limit *attempts* per author.
-                    # However, to be fair, let's increment only if we don't 'continue' immediately after.
-                    # But since this loop has multiple continues, let's increment now.
-                    # Actually, better to increment ONLY if we add it to the batch. 
-                    # BUT, for speed, checking here is fine. Let's act as if "seen" = "counted".
+                    # Increment author count upon encounter to enforce strict sampling caps.
                     author_counts[author] = current_count + 1
 
                 try:
@@ -435,7 +420,7 @@ def load_reddit_control_dataset():
     print("Loading Reddit Control dataset (Safe Data)...")
     
     # Target approximately 60,000 samples per subreddit on average (Total ~3M target to land 1.5M actual)
-    # We increased this 4x because yield was low (approx 60%) and we want 1.5M chunks.
+    # Oversample by 4x to account for low yield (~60%) and data cleaning attrition.
     
     SUBREDDIT_SIZES = {
         "tifu": 526000,
