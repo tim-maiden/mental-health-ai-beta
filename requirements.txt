@@ -15,6 +15,6 @@ transformers==4.40.2
 torch>=2.6.0
 wandb
 huggingface_hub
-faiss-gpu-cu12
+faiss-gpu-cu12>=1.8.0
 pyarrow
 fsspec>=2024.6.0
