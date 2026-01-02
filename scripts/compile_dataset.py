@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import json
 import pyarrow.parquet as pq
-import s3fs
 from sklearn.model_selection import train_test_split
 
 # Import FAISS (GPU-accelerated k-NN)
