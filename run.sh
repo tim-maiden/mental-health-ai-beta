@@ -93,15 +93,16 @@ export HF_HUB_ENABLE_HF_TRANSFER=0
 
 # Check for compiled data first to avoid expensive re-ingestion
 log "--- Checking for pre-compiled datasets ---"
-if python scripts/download_datasets.py --s3-prefix "data/latest"; then
-    log "Successfully downloaded compiled datasets from S3. Skipping Data Ingestion and Compilation."
-else
-    log "Compiled data not found or download failed. Proceeding with full data pipeline..."
+# DISABLED: We want to force compilation from Hugging Face for now
+# if python scripts/download_datasets.py --s3-prefix "data/latest"; then
+#     log "Successfully downloaded compiled datasets from S3. Skipping Data Ingestion and Compilation."
+# else
+    log "Proceeding with full data pipeline..."
 
     # Step 1: Data Ingestion (Snapshot)
     # Skipped on RunPod to enforce "Freeze" workflow.
     # Ensure you have run 'python scripts/ingest_data.py' locally first!
-    log "--- Step 1: Data Ingestion (Skipped - Reading from S3 Snapshot) ---"
+    log "--- Step 1: Data Ingestion (Skipped - Reading from HF Hub) ---"
     # python scripts/ingest_data.py
 
     # Step 2: Compile Dataset (Teacher Training Data)
@@ -109,7 +110,8 @@ else
     python scripts/compile_dataset.py
 
     # [NEW] Step 2.5: Backup Compiled Data
-    log "--- Uploading Compiled Data to S3 ---"
+    # Disabled S3 upload in favor of HF Hub workflow
+    # log "--- Uploading Compiled Data to S3 ---"
     
     # Determine Data Directory Path
     if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
@@ -119,20 +121,20 @@ else
     fi
     
     # Create temp dir for specific artifacts we want to version (to avoid uploading raw pickles)
-    mkdir -p "$DATA_DIR_PATH/compiled_artifacts"
-    cp "$DATA_DIR_PATH/final_train.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
-    cp "$DATA_DIR_PATH/test.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
-    cp "$DATA_DIR_PATH/subreddit_mapping.json" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
+    # mkdir -p "$DATA_DIR_PATH/compiled_artifacts"
+    # cp "$DATA_DIR_PATH/final_train.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
+    # cp "$DATA_DIR_PATH/test.parquet" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
+    # cp "$DATA_DIR_PATH/subreddit_mapping.json" "$DATA_DIR_PATH/compiled_artifacts/" 2>/dev/null || true
     
     # Upload to timestamped folder (Versioning for reproducibility)
-    python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/${TIMESTAMP}"
+    # python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/${TIMESTAMP}"
     
     # Upload to 'latest' folder (Caching for speed)
-    python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/latest"
+    # python scripts/upload_model.py --local-dir "$DATA_DIR_PATH/compiled_artifacts" --s3-prefix "data/latest"
     
     # Cleanup
-    rm -rf "$DATA_DIR_PATH/compiled_artifacts"
-fi
+    # rm -rf "$DATA_DIR_PATH/compiled_artifacts"
+# fi
 
 # Step 3: Train Teacher Model (DeBERTa)
 log "--- Step 3: Train Teacher (DeBERTa) ---"
@@ -144,7 +146,7 @@ python scripts/train_classifier.py
 # # Run inference on WildChat data from Supabase to generate soft labels
 # # Save output to data/wildchat_silver_labels.pkl
 # # Use --limit 50000 or however many rows you want to label for distillation
-# python scripts/inference.py --wildchat --output data/wildchat_silver_labels.pkl --limit 50000
+# # python scripts/inference.py --wildchat --output data/wildchat_silver_labels.pkl --limit 50000
 
 # Step 5: Train Student Model (Distillation)
 # log "--- Step 5: Train Student (DistilBERT/MobileBERT) ---"
@@ -153,16 +155,16 @@ python scripts/train_classifier.py
 log "--- Step 6: Final Inference Test ---"
 python scripts/inference.py
 
-log "--- Step 7: Upload to S3 ---"
-if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-    MODELS_LOCAL_DIR="/workspace/models"
-else
-    MODELS_LOCAL_DIR="models"
-fi
-python scripts/upload_model.py --local-dir "$MODELS_LOCAL_DIR" --s3-prefix models
+log "--- Step 7: Upload to S3 (Disabled) ---"
+# if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+#     MODELS_LOCAL_DIR="/workspace/models"
+# else
+#     MODELS_LOCAL_DIR="models"
+# fi
+# python scripts/upload_model.py --local-dir "$MODELS_LOCAL_DIR" --s3-prefix models
 
 # Upload logs at the end of a successful run
-upload_logs
+# upload_logs
 
 log "--- Pipeline Complete! ---"
 

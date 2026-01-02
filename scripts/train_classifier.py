@@ -149,6 +149,18 @@ def main():
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
     
+    # Push to Hub if configured
+    try:
+        print("Pushing model to Hugging Face Hub...")
+        # This will push the model to your-username/risk_classifier_deberta_small_v1 (or large)
+        # It relies on you being logged in or having HF_TOKEN env var set.
+        repo_name = f"risk-classifier-deberta-{MODEL_ID.split('/')[-1]}"
+        trainer.push_to_hub(repo_name)
+        tokenizer.push_to_hub(repo_name)
+        print(f"Successfully pushed model to {repo_name}")
+    except Exception as e:
+        print(f"Warning: Failed to push model to Hub: {e}")
+    
     print("\n--- Final Evaluation ---")
     print("Evaluating on Test Set...")
     # Skip standard evaluation during training to reduce overhead.
