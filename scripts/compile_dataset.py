@@ -11,7 +11,7 @@ try:
     import faiss
     FAISS_AVAILABLE = True
 except ImportError:
-    print("Warning: faiss not installed. Please install faiss-gpu-cu12.")
+    print("Warning: faiss not installed. Please install faiss-cpu.")
     FAISS_AVAILABLE = False
 
 # Add project root to sys.path
@@ -33,30 +33,17 @@ from src.config import (
 def get_faiss_index(d, ref_vecs):
     """
     Creates and returns a FAISS index. 
-    Prioritizes GPU (H100) -> Falls back to CPU (HNSW) if GPU fails.
+    FORCED CPU MODE (HNSW) to avoid H100/CUDA kernel compatibility issues.
     """
-    try:
-        # 1. Attempt GPU Index (Flat Inner Product = Cosine if normalized)
-        # H100 requires faiss-gpu-cu12 to work correctly
-        res = faiss.StandardGpuResources() 
-        index_cpu = faiss.IndexFlatIP(d)
-        
-        print(f"  > Moving index to GPU (H100)...")
-        index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
-        index.add(ref_vecs)
-        print("  > GPU Index built successfully.")
-        return index
-
-    except Exception as e:
-        print(f"\n  [WARNING] GPU Index failed: {e}")
-        print("  [INFO] Likely architecture mismatch or missing faiss-gpu-cu12.")
-        print("  > Falling back to CPU (IndexHNSWFlat)...")
-        
-        # 2. CPU Fallback (HNSW for speed)
-        index = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
-        index.train(ref_vecs)
-        index.add(ref_vecs)
-        return index
+    # CPU Fallback (HNSW for speed)
+    # HNSW32 is a very strong approximation.
+    print("  > Using CPU Index (IndexHNSWFlat) for compatibility...")
+    index = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
+    
+    # HNSW requires training (building the graph)
+    index.train(ref_vecs)
+    index.add(ref_vecs)
+    return index
 
 def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     """
@@ -75,7 +62,7 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     faiss.normalize_L2(query_vecs)
     faiss.normalize_L2(ref_vecs) 
     
-    # Get Index (GPU or CPU)
+    # Get Index (CPU)
     index = get_faiss_index(d, ref_vecs)
             
     print(f"  > Searching Index (query_size={len(query_vecs)}, k={k})...")
@@ -104,7 +91,7 @@ def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=
     num_classes = len(subreddit_map)
     d = teacher_vecs.shape[1]
 
-    # Get Index (GPU or CPU)
+    # Get Index (CPU)
     index = get_faiss_index(d, teacher_vecs)
     
     distances, indices = index.search(query_vecs, n_neighbors)
@@ -145,10 +132,10 @@ def get_emotion_score(row, target):
     return 0.0
 
 def main():
-    print("--- Starting Dataset Compilation (GPU Accelerated) ---")
+    print("--- Starting Dataset Compilation (CPU Mode) ---")
     
     if not FAISS_AVAILABLE:
-        print("Error: FAISS is required. Install faiss-gpu-cu12.")
+        print("Error: FAISS is required. Install faiss-cpu or faiss-gpu.")
         sys.exit(1)
         
     # 1. Load Data
