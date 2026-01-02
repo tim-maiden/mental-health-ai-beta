@@ -117,24 +117,22 @@ def main():
             print("No data was written.")
             return
 
-    # 3. Upload to S3
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    s3_path = f"s3://{S3_BUCKET_NAME}/data/snapshots/raw_data_{timestamp}.parquet"
-    latest_path = RAW_DATA_FILE
+    # 3. Upload to Hugging Face Hub
+    print(f"Uploading to Hugging Face Hub (tim-maiden/mental-health-ai)...")
+    from datasets import Dataset
 
-    print(f"Uploading to S3: {s3_path}...")
-    
-    # Upload raw Parquet file directly via S3FS to avoid Pandas read/write overhead.
-    import s3fs
-    fs = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY, client_kwargs={'region_name': AWS_REGION})
-    
-    # Upload to snapshot path
-    fs.put(local_filename, s3_path)
-    
-    # Upload to latest path
-    print(f"Updating latest link at {latest_path}...")
-    fs.put(local_filename, latest_path)
-    
+    try:
+        # Load the parquet file we just wrote
+        dataset = Dataset.from_parquet(local_filename)
+        
+        # Push to hub
+        # private=True is recommended for Reddit data to avoid PII issues, change if desired.
+        dataset.push_to_hub("tim-maiden/mental-health-ai", private=True)
+        print("Successfully uploaded to Hugging Face Hub.")
+        
+    except Exception as e:
+        print(f"Error uploading to Hugging Face Hub: {e}")
+
     # Cleanup
     if os.path.exists(local_filename):
         os.remove(local_filename)

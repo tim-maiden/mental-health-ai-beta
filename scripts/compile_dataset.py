@@ -156,27 +156,25 @@ def main():
         sys.exit(1)
         
     # 1. Load Data
-    print(f"Loading data via S3 Parquet Snapshot: {RAW_DATA_FILE}...")
+    print(f"Loading data from Hugging Face Hub (tim-maiden/mental-health-ai)...")
+    from datasets import load_dataset
 
     try:
-        # SETUP S3 FILESYSTEM
-        fs = s3fs.S3FileSystem(
-            key=os.getenv("AWS_ACCESS_KEY_ID"),
-            secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            client_kwargs={"region_name": os.getenv("AWS_REGION", "us-east-1")}
-        )
+        # Load the dataset from the Hub
+        # Using streaming=True for large datasets can be efficient but here we likely fit in RAM if we are careful
+        # But we previously used arrow table optimizations. 
+        # load_dataset returns a memory-mapped arrow dataset by default which is efficient.
+        dataset = load_dataset("tim-maiden/mental-health-ai", split="train")
         
-        # PARSE S3 PATH
-        # Remove s3:// prefix if present, as s3fs expects 'bucket/key'
-        s3_path = RAW_DATA_FILE.replace("s3://", "")
-        
-        # READ AS ARROW TABLE (Efficient, Zero-Copy)
-        table = pq.read_table(s3_path, filesystem=fs)
-        print(f"Loaded Arrow Table: {table.num_rows} rows.")
+        print(f"Loaded Dataset: {len(dataset)} rows.")
 
         # EFFICIENT EMBEDDING CONVERSION (Arrow -> Numpy Matrix)
         # This avoids creating 3.7 billion Python float objects (~100GB RAM)
         print("Reconstructing embedding vectors (High-Performance Mode)...")
+        
+        # Access the underlying Arrow Table
+        # dataset.data is a MemoryMappedTable
+        table = dataset.data.table
         
         # Extract flat values from the ListArray
         emb_column = table['embedding']
@@ -207,8 +205,7 @@ def main():
         print(f"Loaded {len(df_all)} rows successfully.")
 
     except Exception as e:
-        print(f"Error loading S3 snapshot: {e}")
-        # print("Tip: Run 'python scripts/ingest_data.py' to generate the snapshot first.") # Optional tip
+        print(f"Error loading dataset: {e}")
         sys.exit(1)
 
     # Ensure binary label exists (1 if risk, 0 if safe)
