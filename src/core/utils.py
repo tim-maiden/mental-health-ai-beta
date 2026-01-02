@@ -14,14 +14,12 @@ def chunk_text_sliding_window(text: str, window_size: int = 3, stride: int = 1, 
     if not text:
         return []
 
-    # 1. Protect ellipses
+    # Protect ellipses -> Split on punctuation -> Restore
     text = text.replace('...', '<ELLIPSIS>')
     
-    # 2. Split by sentence-ending punctuation
     text_with_delimiters = re.sub(r'([.!?]+)', r'\1<SPLIIT>', text)
     sentences = [chunk.strip() for chunk in text_with_delimiters.split('<SPLIIT>') if chunk.strip()]
     
-    # 3. Restore ellipses
     sentences = [s.replace('<ELLIPSIS>', '...') for s in sentences]
     
     if not sentences:
@@ -29,7 +27,7 @@ def chunk_text_sliding_window(text: str, window_size: int = 3, stride: int = 1, 
 
     chunks = []
     
-    # 4. Create Sliding Windows
+    # Create Sliding Windows
     # If fewer sentences than window size, take all of them as one chunk
     if len(sentences) <= window_size:
         chunks.append(" ".join(sentences))
@@ -44,7 +42,7 @@ def chunk_text_sliding_window(text: str, window_size: int = 3, stride: int = 1, 
         # With stride 1, we cover everything. With stride > 1, we might miss the very end as a distinct start,
         # but the last window covers the end.
     
-    # 5. Enforce Min Tokens (Filter)
+    # Enforce Min Tokens (Filter)
     # Filter out windows below 'min_tokens' unless it is the only generated chunk.
     
     final_chunks = []

@@ -10,7 +10,7 @@ echo "=============================================="
 echo "   BUILDING & PUSHING DOCKER IMAGE (DOCKER HUB)"
 echo "=============================================="
 
-# 1. Build Image (Force AMD64 for Cloud Compatibility)
+# Build for linux/amd64 to ensure RunPod compatibility
 echo "--- Step 1: Building Image for linux/amd64 ---"
 docker build --platform linux/amd64 -t ${IMAGE_NAME}:${TAG} .
 

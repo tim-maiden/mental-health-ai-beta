@@ -13,7 +13,7 @@ def embed_text(text, large=True, retries=3, delay=5):
     to match the legacy schema size while getting better quality.
     """
     model = EMBEDDING_MODEL if large else "text-embedding-3-small"
-    # Use 'text-embedding-3-large' reduced to 1536 dimensions for compatibility with legacy schema.
+    # Reduce 'text-embedding-3-large' to 1536 dimensions to match 'text-embedding-3-small' / Ada-002 vector space size.
     dimensions = EMBEDDING_DIMENSIONS 
     
     # Proactively manage rate limits before making the API call

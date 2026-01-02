@@ -5,7 +5,7 @@ import numpy as np
 import json
 from sklearn.model_selection import train_test_split
 
-# Handle FAISS import with fallback for local dev (CPU) vs Cloud (GPU)
+# Import FAISS (GPU-accelerated k-NN)
 try:
     import faiss
     FAISS_AVAILABLE = True
@@ -99,9 +99,13 @@ def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=
     index = faiss.IndexFlatIP(d)
     try:
         res = faiss.StandardGpuResources()
+        print("Using FAISS GPU...")
         index = faiss.index_cpu_to_gpu(res, 0, index)
-    except:
-        pass
+    except Exception as e:
+        print(f"FAISS GPU not available ({e}). Switching to fast CPU index (HNSW)...")
+        # Use HNSW for faster CPU search
+        index = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
+        index.train(teacher_vecs)
         
     index.add(teacher_vecs)
     distances, indices = index.search(query_vecs, n_neighbors)
@@ -265,10 +269,8 @@ def main():
     # Oversampling Strategy
     print("Applying Adjusted Oversampling Multipliers...")
     
-    # Reduced from 10 to 3
+    # Oversample Sad/Happy safe examples to improve decision boundaries against Risk.
     sad_safe_oversampled = pd.concat([sad_safe] * 3)
-    
-    # Reduced from 5 to 2
     happy_safe_oversampled = pd.concat([happy_safe] * 2)
     
     print(f" - Sad Safe (3x): {len(sad_safe_oversampled)}")

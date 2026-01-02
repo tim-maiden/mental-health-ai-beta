@@ -30,7 +30,7 @@ if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
 
 
 # --- PROCESSING CONFIGURATION ---
-BATCH_SIZE = 500  # Reduced from 1000 to avoid Supabase statement timeouts
+BATCH_SIZE = 500  # Set to 500 to prevent Supabase statement timeouts
 PROGRESS_FILE = "progress.json"
 SEED = 42
 

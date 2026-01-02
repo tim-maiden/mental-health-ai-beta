@@ -81,8 +81,7 @@ def main():
         total_chunks = 0
         current_offset = 0
         
-        # Adjust batch size for memory safety (e.g. 5000 chunks)
-        # Sampling to reduce dataset size.
+        # Batch size set to 5000 for memory safety; 25% sampling rate applied.
         # Limit at 1.25M to ensure full alphabetical coverage
         generator = yield_reddit_mental_health_dataset(
             batch_size=5000,

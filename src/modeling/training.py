@@ -34,7 +34,7 @@ class CustomTrainer(Trainer):
         log_probs = F.log_softmax(logits, dim=-1)
         
         # nn.KLDivLoss expects input to be log-probabilities and target to be probabilities.
-        # batchmean is mathematically correct for KL.
+        # Use 'batchmean' reduction to align with KL Divergence mathematical definition.
         loss_fct = nn.KLDivLoss(reduction="batchmean")
         main_loss = loss_fct(log_probs, labels)
         
@@ -54,7 +54,7 @@ class CustomTrainer(Trainer):
             # Force them to match (MSE)
             aux_loss = F.mse_loss(pred_risk_mass, target_risk_mass)
             
-            # Combine: 80% Fine-Grained, 20% Binary enforcement (0.5 weight relative to KL roughly)
+            # Weighted combination: Main distillation loss + 0.5 * Binary consistency loss.
             total_loss = main_loss + (0.5 * aux_loss)
         else:
             total_loss = main_loss

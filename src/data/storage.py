@@ -220,7 +220,7 @@ def fetch_data(table_name, fetch_size=1000, columns=None, start_id=None, end_id=
         else:
             print(f"   -> [Range start {start_id}] Fetched all rows. Processing embeddings...", end='\r')
 
-        # 1. Convert to list of values first to avoid pandas overhead in loop
+        # Convert to list for faster iteration.
         raw_values = df['embedding'].values
         processed_values = [None] * len(raw_values)
         

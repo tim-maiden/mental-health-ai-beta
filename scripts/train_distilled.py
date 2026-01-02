@@ -49,14 +49,11 @@ def main():
     print(f"Loading silver labels from {INPUT_FILE}...")
     df = pd.read_pickle(INPUT_FILE)
     
-    # Filter for confidence? (Optional)
-    # The expert mentioned this but didn't mandate it. 
-    # High confidence samples are better teachers.
-    # Let's keep all for now as the Soft Labels carry the uncertainty info.
+    # Note: We retain all samples regardless of confidence. 
+    # The Soft Labels (probability distributions) inherently encode uncertainty, 
+    # allowing the student model to learn from the teacher's ambiguity.
     
-    # Ensure 'labels' column contains the 'full_dist' list
-    # Convert list to float32 numpy array/tensor logic is handled by collator/trainer usually,
-    # but safe to keep as list of floats in the dataset.
+    # Map 'full_dist' to 'labels'. The DataCollator will handle conversion to tensors.
     df['labels'] = df['full_dist']
     
     # Convert to HF Dataset

@@ -36,7 +36,8 @@ def main():
     if "WANDB_API_KEY" in os.environ:
         wandb.login(key=os.environ["WANDB_API_KEY"])
         
-    # Robust Initialization: Try online, fallback to offline if timeout
+    # Attempt online initialization with timeout; fallback to offline mode on failure.
+    # Log masked API key for debugging.
     try:
         print(f"--- Initializing WandB (Project: {WANDB_PROJECT}) ---")
         # Mask the key for logging safety (show first 4 chars only if present)
@@ -90,11 +91,10 @@ def main():
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_ID, 
         num_labels=num_labels,
-        problem_type="multi_label_classification" # Hint to HF (though we override loss anyway)
+        problem_type="multi_label_classification" # Explicitly set problem_type for compatibility, though CustomTrainer overrides the loss function.
     )
 
-    # --- UNFREEZING: FULLY TRAINABLE ---
-    # Model is fully trainable (no layer freezing) to optimize for domain transfer.
+    # Full fine-tuning (all layers trainable) to optimize for domain shift.
     print("Model is FULLY TRAINABLE (No Freezing).")
 
     # Load Risk Indices
