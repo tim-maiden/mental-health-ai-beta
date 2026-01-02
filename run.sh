@@ -16,10 +16,11 @@ log() {
 }
 
 upload_logs() {
+    # Optional: You can skip log uploads or implement HF Hub uploadFile 
+    # For now, we print a warning so it doesn't crash the error handler
     if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-        log "Uploading logs to S3..."
-        # Upload using the python script, putting logs in a timestamped folder
-        python scripts/upload_logs.py --log-file "$LOG_FILE" --s3-prefix "logs/$TIMESTAMP" || log "Warning: Failed to upload logs."
+        log "Log upload to S3 is disabled. Logs are local only: $LOG_FILE"
+        # To fix strictly: Use HfApi().upload_file in a python script
     fi
 }
 
@@ -155,13 +156,18 @@ python scripts/train_classifier.py
 log "--- Step 6: Final Inference Test ---"
 python scripts/inference.py
 
-log "--- Step 7: Upload to S3 (Disabled) ---"
-# if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
-#     MODELS_LOCAL_DIR="/workspace/models"
-# else
-#     MODELS_LOCAL_DIR="models"
-# fi
-# python scripts/upload_model.py --local-dir "$MODELS_LOCAL_DIR" --s3-prefix models
+log "--- Step 7: Upload Model to Hugging Face ---"
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    MODELS_LOCAL_DIR="/workspace/models"
+else
+    MODELS_LOCAL_DIR="models"
+fi
+
+# REPLACE S3 UPLOAD WITH HF UPLOAD
+# Ensure you have HF_TOKEN set in your environment variables!
+python scripts/upload_model.py \
+    --local-dir "$MODELS_LOCAL_DIR" \
+    --repo-id "tim-maiden/mental-health-ai-models"
 
 # Upload logs at the end of a successful run
 # upload_logs

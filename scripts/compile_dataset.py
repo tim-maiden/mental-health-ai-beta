@@ -172,9 +172,8 @@ def main():
         # This avoids creating 3.7 billion Python float objects (~100GB RAM)
         print("Reconstructing embedding vectors (High-Performance Mode)...")
         
-        # Access the underlying Arrow Table
-        # dataset.data is a MemoryMappedTable
-        table = dataset.data.table
+        # FIX: dataset.data is the Table itself in modern versions
+        table = dataset.data
         
         # Extract flat values from the ListArray
         emb_column = table['embedding']
