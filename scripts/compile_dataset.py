@@ -180,12 +180,19 @@ def main():
         
         # Extract flat values from the ListArray
         emb_column = table['embedding']
-        if hasattr(emb_column, 'combine_chunks'):
-             emb_column = emb_column.combine_chunks()
         
-        # Reshape flat array to (N, 1536) matrix
-        # Note: This is nearly instant and uses minimal extra RAM
-        flattened_data = emb_column.values.to_numpy()
+        # FIX: Do NOT use combine_chunks() on the ListArray itself.
+        # The total element count (~3.7B) exceeds the 32-bit offset limit (2.1B) of PyArrow ListArrays.
+        # Instead, we process each chunk individually and flatten them to Numpy (which handles large data fine).
+        print(f"Flattening {len(emb_column.chunks)} chunks manually to bypass offset limits...")
+        
+        chunk_arrays = []
+        for chunk in emb_column.chunks:
+            # .flatten() handles slicing correctly and returns the raw flat values for this chunk
+            chunk_arrays.append(chunk.flatten().to_numpy())
+            
+        # Concatenate the raw float data (High RAM usage momentarily, but safe from overflow)
+        flattened_data = np.concatenate(chunk_arrays)
         matrix = flattened_data.reshape(-1, 1536)
         
         # CONVERT METADATA TO PANDAS
