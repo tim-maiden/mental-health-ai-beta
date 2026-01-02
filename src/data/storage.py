@@ -46,7 +46,7 @@ def embed_and_upload_dataframe_in_batches(df: pd.DataFrame, table_name: str, bat
         
         # --- Data Cleaning ---
         # Clean null characters from all object (likely string) columns
-        # BUT skip columns that are actually lists (like 'emotions')
+        # Skip columns that are actually lists (like 'emotions')
         for col in batch_df.select_dtypes(include=['object']).columns:
             # Check if the column likely contains lists (by checking first non-null element)
             first_valid_index = batch_df[col].first_valid_index()

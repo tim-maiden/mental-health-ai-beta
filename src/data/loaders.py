@@ -476,7 +476,7 @@ def load_reddit_control_dataset():
     }
     
     TOTAL_SOURCE_ROWS = sum(SUBREDDIT_SIZES.values())
-    # [UPDATED] Increased target to ~3M total (avg 60k per sub) to achieve 1.5M valid chunks
+    # Increase target to ~3M total (avg 60k per sub) to achieve 1.5M valid chunks
     TARGET_TOTAL_SAMPLES = 60000 * len(SUBREDDIT_SIZES) 
     
     TARGET_SUBREDDITS = {}
@@ -485,7 +485,7 @@ def load_reddit_control_dataset():
         target = int((count / TOTAL_SOURCE_ROWS) * TARGET_TOTAL_SAMPLES)
         # Ensure at least a minimal sample if the subreddit exists in our list
         # And cap at a reasonable maximum to avoid one subreddit dominating
-        # UPDATED CAPS: Min 10k, Max 200k
+        # Cap targets: Min 10k, Max 200k
         target = max(10000, min(target, 200000)) 
         TARGET_SUBREDDITS[sub] = target
     
@@ -507,7 +507,7 @@ def load_reddit_control_dataset():
             print(f"Warning: Could not load split for r/{subreddit}: {e}")
             continue
 
-        # [UPDATED] Date Filtering (Aug 2021 - Aug 2022)
+        # Date Filtering (Aug 2021 - Aug 2022)
         # Aug 1, 2021 = 1627776000
         # Aug 31, 2022 = 1661990400
         START_UTC = 1627776000

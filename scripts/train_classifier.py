@@ -117,7 +117,7 @@ def main():
         num_epochs=NUM_EPOCHS
     )
     
-    # FORCE OVERRIDE: H100 Optimization Strategy
+    # H100 Optimization Strategy
     # Maximize VRAM usage (H100 has 80GB)
     if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
         print("Overriding Training Args for H100 Optimization Strategy...")
