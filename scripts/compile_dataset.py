@@ -61,7 +61,11 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
         print("Using FAISS GPU...")
         index = faiss.index_cpu_to_gpu(res, 0, index)
     except Exception as e:
-        print(f"FAISS GPU not available or failed ({e}). Using CPU...")
+        print(f"FAISS GPU not available ({e}). Switching to fast CPU index (HNSW)...")
+        # Use HNSW for faster CPU search (approximate but much faster than Flat)
+        # HNSW32 with Inner Product
+        index = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
+        index.train(ref_vecs) # HNSW sometimes needs training if stacked, usually not for Flat, but good practice
         
     index.add(ref_vecs)
     
