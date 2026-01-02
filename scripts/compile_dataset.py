@@ -305,7 +305,27 @@ def main():
     # Oversampling Strategy
     print("Applying Adjusted Oversampling Multipliers...")
     
-    # Oversample Sad/Happy safe examples to improve decision boundaries against Risk.
+    # 1. Define Target Counts relative to Risk
+    risk_count = len(clean_risk_df)
+    target_sad_total = risk_count * 2   # Ratio 2:1
+    target_happy_total = risk_count * 1 # Ratio 1:1
+
+    # 2. Calculate max UNIQUE samples needed given the multipliers
+    # We divide by the multiplier because we will replicate them later
+    # Multiplier 3x for Sad, 2x for Happy
+    max_unique_sad = int(target_sad_total / 3)
+    max_unique_happy = int(target_happy_total / 2)
+
+    # 3. Cap the Source Dataframes
+    if len(sad_safe) > max_unique_sad:
+        print(f" - Capping Sad Safe Source ({len(sad_safe)} -> {max_unique_sad})...")
+        sad_safe = sad_safe.sample(n=max_unique_sad, random_state=SEED)
+
+    if len(happy_safe) > max_unique_happy:
+        print(f" - Capping Happy Safe Source ({len(happy_safe)} -> {max_unique_happy})...")
+        happy_safe = happy_safe.sample(n=max_unique_happy, random_state=SEED)
+
+    # 4. Apply Multipliers (Preserves the "Weight" of these hard examples)
     sad_safe_oversampled = pd.concat([sad_safe] * 3)
     happy_safe_oversampled = pd.concat([happy_safe] * 2)
     
