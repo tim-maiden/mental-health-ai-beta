@@ -122,7 +122,7 @@ def train_probe(df):
     X_test = scaler.transform(X_test)
     
     print("Training Granular Logistic Regression (OneVsRest)...")
-    # CHANGED: class_weight=None for High Precision
+    # Set class_weight=None to prioritize High Precision
     base_clf = LogisticRegression(solver='lbfgs', class_weight=None, max_iter=1000, random_state=42, verbose=1)
     clf = OneVsRestClassifier(base_clf, n_jobs=-1)
     clf.fit(X_train, y_train)

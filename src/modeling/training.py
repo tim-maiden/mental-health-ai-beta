@@ -76,7 +76,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
     
     if is_cloud:
         print("--- CONFIGURING FOR CLOUD GPU (H100/A100) ---")
-        # [FIX] Increased batch size to saturate H100 memory
+        # Increase batch size to saturate H100 memory
         per_device_train_batch_size = 32
         per_device_eval_batch_size = 32
         grad_accum_steps = 2  
@@ -109,7 +109,7 @@ def get_training_args(output_dir, num_epochs=3, train_batch_size=16, eval_batch_
         num_train_epochs=num_epochs,
         load_best_model_at_end=True,
         metric_for_best_model="eval_accuracy",
-        save_total_limit=SAVE_TOTAL_LIMIT,  # CRITICAL FIX: Only keep the best checkpoint to prevent disk space exhaustion
+        save_total_limit=SAVE_TOTAL_LIMIT,  # Only keep the best checkpoint to prevent disk space exhaustion
         fp16=fp16_mode,
         bf16=bf16_mode,
         dataloader_pin_memory=pin_memory,

@@ -46,7 +46,7 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     query_vecs = query_vecs.astype(np.float32)
     ref_vecs = ref_vecs.astype(np.float32)
     
-    # ADD THIS: L2 Normalize vectors to ensure Inner Product == Cosine Similarity
+    # L2 Normalize vectors to ensure Inner Product == Cosine Similarity
     faiss.normalize_L2(query_vecs)
     faiss.normalize_L2(ref_vecs) 
     

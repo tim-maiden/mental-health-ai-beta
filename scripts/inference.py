@@ -168,8 +168,7 @@ def run_inference(args):
     
     all_results = []
     
-    # TQDM needs total count to show progress bar properly, but streaming from DB makes it hard.
-    # We'll just use the limit if provided, else it will just count up.
+    # Use limit for TQDM total if provided, otherwise default to infinite counter.
     pbar = tqdm(data_gen, total=(args.limit // args.batch_size) if args.limit else None, unit="batch", desc=f"Processing {dataset_name}")
     
     for batch_ids, batch_texts in pbar:
@@ -179,8 +178,7 @@ def run_inference(args):
         for i, text in enumerate(batch_texts):
             # Basic validation
             if text and isinstance(text, str) and len(text.strip()) > 0:
-                 # Check English only if desired, though we filtered in loader.
-                 # Let's trust the DB data is mostly clean or check minimal length
+                 # Validate input length (language filtering is handled during data loading).
                  keep_indices.append(i)
             else:
                 skip_indices.append(i)
@@ -206,9 +204,7 @@ def run_inference(args):
                 top_prob = prob[top_idx].item()
                 top_label = id_to_sub.get(top_idx, str(top_idx))
                 
-                # Heuristic Risk Score: Sum of probs of known risk subreddits?
-                # Or just output the top prediction.
-                # For now, let's output top label + prob.
+                # Output top label and confidence score.
                 
                 all_results.append({
                     'id': batch_ids[idx],

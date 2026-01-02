@@ -120,7 +120,7 @@ def main():
     # FORCE OVERRIDE: H100 Optimization Strategy
     # Maximize VRAM usage (H100 has 80GB)
     if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
-        print("Overriding Training Args for H100 Abundance Strategy...")
+        print("Overriding Training Args for H100 Optimization Strategy...")
         training_args.per_device_train_batch_size = 64
         training_args.gradient_accumulation_steps = 1 # Global batch size = 64 (per device) * 1 * N_devices
         training_args.bf16 = True
@@ -151,7 +151,7 @@ def main():
     
     print("\n--- Final Evaluation ---")
     print("Evaluating on Test Set...")
-    # NOTE: We skip standard evaluation during training script to avoid overhead.
+    # Skip standard evaluation during training to reduce overhead.
     # Evaluation is handled in detail by scripts/inference.py and WandB logging.
     # metrics = trainer.evaluate(eval_dataset=tokenized_datasets["test"], metric_key_prefix="eval")
     # print(metrics)

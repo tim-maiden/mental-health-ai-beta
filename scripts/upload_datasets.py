@@ -204,7 +204,7 @@ def main():
                     print("Progress reset.")
             except Exception as e:
                 print(f"Error clearing table: {e}")
-                print("Continuing... (Duplicate checks are not implemented, so you may get dupes)")
+                print("Note: Duplicate checks are not implemented.")
 
         df_control = load_reddit_control_dataset()
         embed_and_upload_dataframe_in_batches(

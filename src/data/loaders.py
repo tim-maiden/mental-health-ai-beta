@@ -522,7 +522,7 @@ def load_reddit_control_dataset():
                 
             # Date Filter
             try:
-                # Screenshot showed string "133...", ensure safe cast
+                # Ensure safe cast to float for 'created_utc' field.
                 created_utc = float(row.get('created_utc', 0))
             except (ValueError, TypeError):
                 continue
@@ -553,13 +553,7 @@ def load_reddit_control_dataset():
             # Chunk the text to match mental health dataset processing (Body only)
             chunks = chunk_text_sliding_window(body.strip())
             
-            # We need a unique ID for each post to track chunks
-            # Since we don't have a post_id from this dataset, we'll generate one
-            # Or we can just use a simple counter for now, or hash the text
-            # Let's use a simple tuple of (subreddit, index_in_stream) to make a pseudo-ID if we need
-            # But for simplicity, we'll just carry over the chunk logic.
-            # The mental health dataset has 'post_id' and 'chunk_id'. 
-            # Let's assume we can generate a unique ID for the post here.
+            # Generate a unique pseudo-ID using subreddit and stream index.
             post_id = f"{subreddit}_{i}" 
             
             # Author
