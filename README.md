@@ -128,8 +128,20 @@ DEPLOY_ENV=local  # Set to 'runpod' or 'cloud' in production
 ### 3. First-Time Data Initialization
 Before running the main pipeline, you must populate and enrich the database. This is a one-time operation.
 
+**A. Database Schema Setup:**
+Before running any Python scripts, you must create the necessary tables in Supabase.
+1.  Navigate to your Supabase SQL Editor.
+2.  Run the SQL scripts located in `src/supabase_setup/` in the following order:
+    *   `setup_goemotions_table.sql`
+    *   `setup_reddit_table.sql`
+    *   `setup_safe_control_table.sql`
+    *   `setup_wildchat_table.sql` (Optional, for silver labeling)
+    *   `add_emotion_scores.sql`
+
+**B. Data Population:**
 ```bash
 # 1. Populate Supabase with Raw Data (Kaggle/HF)
+# Flags available: --mental-health, --controls, --goemotions, --lmsys, --wildchat
 python scripts/upload_datasets.py --mental-health --controls --goemotions
 
 # 2. Enrich 'Safe' data with Emotion Labels (CRITICAL)
