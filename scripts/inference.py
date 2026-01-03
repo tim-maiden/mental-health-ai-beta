@@ -242,9 +242,14 @@ def run_inference(args):
     if args.upload_dataset:
         print(f"--- Uploading Silver Labels to HF: {args.dataset_id} ---")
         try:
-            # Convert DataFrame to HF Dataset
+            # Filter out rows where full_dist is empty (failed predictions)
+            # This ensures the training dataset only contains valid probability distributions
+            df_upload = df_results[df_results['full_dist'].map(len) > 0].copy()
+            print(f"Filtered {len(df_results) - len(df_upload)} invalid rows. Uploading {len(df_upload)} valid samples.")
+            
+            # Convert filtered DataFrame to HF Dataset
             # Ensure columns are friendly types (lists are fine)
-            hf_dataset = Dataset.from_pandas(df_results)
+            hf_dataset = Dataset.from_pandas(df_upload)
             
             # Push to Hub (Private by default)
             hf_dataset.push_to_hub(args.dataset_id, private=True)

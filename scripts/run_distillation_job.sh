@@ -6,6 +6,11 @@ DATASET_ID="tim-maiden/mental-health-silver-labels"
 STUDENT_MODEL_REPO="tim-maiden/mental-health-ai-models"
 STUDENT_SUBFOLDER="student_distilbert_v1"
 
+# Teacher Model Configuration (for Inference Step)
+TEACHER_MODEL_REPO="tim-maiden/mental-health-ai-models"
+# Assuming we use the large model for cloud/production
+TEACHER_SUBFOLDER="risk_classifier_deberta_large_v1"
+
 echo "=================================================="
 echo "   STARTING DISTILLATION JOB (RUNPOD)"
 echo "=================================================="
@@ -17,13 +22,25 @@ if [ -z "$HF_TOKEN" ]; then
     exit 1
 fi
 
-# 2. Run Training
-# We don't need to run inference first because we assume Phase 1 is done.
-echo "--- Step 2: Training Student Model ---"
+# 2. Run Inference (Generate Silver Labels)
+echo "--- Step 2: Running Inference (Silver Label Generation) ---"
+# We run inference on WildChat data using the Teacher Model from HF
+# We limit to 100k samples to keep runtime reasonable (adjust as needed)
+python scripts/inference.py \
+    --wildchat \
+    --limit 100000 \
+    --batch-size 32 \
+    --upload-dataset \
+    --dataset-id "$DATASET_ID" \
+    --model "$TEACHER_MODEL_REPO" \
+    --subfolder "$TEACHER_SUBFOLDER"
+
+# 3. Run Training (Distillation)
+echo "--- Step 3: Training Student Model ---"
 python scripts/train_distilled.py 
 
-# 3. Upload Result
-echo "--- Step 3: Uploading Student Model to HF ---"
+# 4. Upload Result
+echo "--- Step 4: Uploading Student Model to HF ---"
 # We reuse your existing upload script, pointing to the output directory defined in config.py
 # (DISTILLATION_OUTPUT_DIR = "models/final_student_distilbert")
 
