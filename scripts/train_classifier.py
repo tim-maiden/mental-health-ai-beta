@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import sys
 import torch
@@ -157,8 +158,64 @@ def main():
         if os.path.exists(mapping_src):
             shutil.copy(mapping_src, mapping_dst)
             print(f"Copied subreddit_mapping.json to {OUTPUT_DIR}")
+            
+        # [NEW] Copy risk_indices.json as well (for provenance/reproducibility)
+        indices_src = os.path.join(DATA_DIR, "risk_indices.json")
+        indices_dst = os.path.join(OUTPUT_DIR, "risk_indices.json")
+        if os.path.exists(indices_src):
+            shutil.copy(indices_src, indices_dst)
+            print(f"Copied risk_indices.json to {OUTPUT_DIR}")
+            
     except Exception as e:
-        print(f"Warning: Failed to copy subreddit_mapping.json: {e}")
+        print(f"Warning: Failed to copy auxiliary JSON files: {e}")
+
+    # [NEW] Calculate Optimal Threshold
+    if risk_indices:
+        print("\n--- Calculating Optimal Risk Threshold ---")
+        try:
+            # Get predictions on validation set
+            predictions = trainer.predict(tokenized_datasets["test"])
+            logits = torch.tensor(predictions.predictions)
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            
+            # Calculate Risk Probability Mass (Sum of all risk class probs)
+            risk_probs = torch.sum(probs[:, risk_indices], dim=1).numpy()
+            
+            # True Labels (Binary)
+            # We need to map the soft labels back to binary risk/safe for this check
+            # Or just use the original test dataframe if available.
+            # Since we only have tokenized_datasets["test"], we can infer risk from 'labels' (soft targets)
+            test_soft_labels = tokenized_datasets["test"]["labels"]
+            test_soft_labels = torch.tensor(test_soft_labels)
+            
+            # If sum of risk class probs in TARGET > 0.5, it's a risk sample
+            true_risk_mass = torch.sum(test_soft_labels[:, risk_indices], dim=1).numpy()
+            true_binary = (true_risk_mass > 0.5).astype(int)
+            
+            from sklearn.metrics import f1_score
+            best_f1 = 0
+            best_thresh = 0.5
+            
+            # Simple grid search
+            for thresh in np.arange(0.1, 0.95, 0.05):
+                pred_binary = (risk_probs > thresh).astype(int)
+                f1 = f1_score(true_binary, pred_binary, zero_division=0)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_thresh = thresh
+            
+            print(f"Best Threshold: {best_thresh:.2f} (F1: {best_f1:.3f})")
+            
+            # Save threshold.json
+            thresh_data = {"risk_threshold": float(best_thresh), "f1_score": float(best_f1)}
+            with open(os.path.join(OUTPUT_DIR, "threshold.json"), "w") as f:
+                json.dump(thresh_data, f)
+            print(f"Saved threshold.json to {OUTPUT_DIR}")
+            
+        except Exception as e:
+            print(f"Warning: Failed to calculate threshold: {e}")
+            import traceback
+            traceback.print_exc()
 
     # Push to Hub if configured
     try:

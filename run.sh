@@ -172,6 +172,12 @@ python scripts/upload_model.py \
 # Upload logs at the end of a successful run
 # upload_logs
 
+# Force WandB Sync (prevent log loss in offline mode)
+if [ "$DEPLOY_ENV" == "runpod" ] || [ "$DEPLOY_ENV" == "cloud" ]; then
+    log "--- Syncing WandB Logs ---"
+    wandb sync --include-offline --include-synced || log "Warning: WandB sync failed."
+fi
+
 log "--- Pipeline Complete! ---"
 
 # Step 8: Terminate pod if running on RunPod

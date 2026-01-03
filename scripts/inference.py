@@ -278,15 +278,34 @@ if __name__ == "__main__":
         model, tokenizer, device = load_model(model_path, **kwargs)
         probs = predict_batch(model, tokenizer, INPUT_TEXTS, device)
         
-        # Load mapping
-        try:
-            mapping_path = os.path.join(DATA_DIR, "subreddit_mapping.json")
-            with open(mapping_path, "r") as f:
-                mapping = json.load(f)
-            id_to_sub = {v: k for k, v in mapping.items()}
-        except:
-            print("Warning: Could not load subreddit mapping.")
+            # Load mapping
             id_to_sub = {}
+            mapping_found = False
+            
+            # 1. Try loading from model directory (Portable)
+            possible_paths = [
+                os.path.join(model_path, "subreddit_mapping.json"),
+                os.path.join(DATA_DIR, "subreddit_mapping.json")
+            ]
+            
+            # If running in Cloud/RunPod, explicit check for /workspace/models
+            if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
+                 possible_paths.append("/workspace/models/risk_classifier_deberta_large_v1/subreddit_mapping.json")
+
+            for path in possible_paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, "r") as f:
+                            mapping = json.load(f)
+                        id_to_sub = {v: k for k, v in mapping.items()}
+                        # print(f"Loaded subreddit mapping from {path}")
+                        mapping_found = True
+                        break
+                    except Exception as e:
+                        print(f"Warning: Failed to load mapping from {path}: {e}")
+            
+            if not mapping_found:
+                 print("Warning: Could not load subreddit mapping. Output will show raw indices.")
 
         print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'}")
         print("-" * 90)

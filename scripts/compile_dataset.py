@@ -330,6 +330,19 @@ def main():
     
     with open(os.path.join(DATA_DIR, "subreddit_mapping.json"), "w") as f: json.dump(subreddit_map, f)
     
+    # [NEW] Generate and Save Risk Indices for Hierarchical Loss
+    print("Generating Risk Indices for Hierarchical Loss...")
+    # Identify which subreddits correspond to the 'risk' class (binary_label=1)
+    # We check the original metadata to see which subreddits are risk
+    risk_subreddits = set(df_all[df_all['binary_label'] == 1]['subreddit'].unique())
+    
+    # Find the IDs for these subreddits in our new mapping
+    risk_indices = [idx for sub, idx in subreddit_map.items() if sub in risk_subreddits]
+    
+    with open(os.path.join(DATA_DIR, "risk_indices.json"), "w") as f:
+        json.dump(risk_indices, f)
+    print(f"Saved {len(risk_indices)} risk indices to risk_indices.json")
+
     def save_parquet(dataframe, filename):
         out = dataframe.rename(columns={'input': 'text'})
         out['label'] = out['binary_label'].astype(int)
