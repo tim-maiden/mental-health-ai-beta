@@ -319,8 +319,33 @@ if __name__ == "__main__":
         if not mapping_found:
              print("Warning: Could not load subreddit mapping. Output will show raw indices.")
 
-        print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'}")
-        print("-" * 90)
+        # Load Risk Indices
+        risk_indices = []
+        possible_risk_paths = [
+            os.path.join(model_path, "risk_indices.json"),
+            os.path.join(DATA_DIR, "risk_indices.json")
+        ]
+         # Try to download from HF if needed
+        if args.model and "/" in args.model:
+            try:
+                subfolder = args.subfolder if args.subfolder else None
+                downloaded_risk_path = hf_hub_download(repo_id=args.model, filename="risk_indices.json", subfolder=subfolder)
+                possible_risk_paths.append(downloaded_risk_path)
+            except:
+                pass
+
+        for path in possible_risk_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        risk_indices = json.load(f)
+                    print(f"Loaded {len(risk_indices)} risk indices for Risk Mass calculation.")
+                    break
+                except Exception as e:
+                    print(f"Warning: Failed to load risk indices from {path}: {e}")
+
+        print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'} | {'RISK MASS'}")
+        print("-" * 105)
         
         results = []
         for text, prob in zip(INPUT_TEXTS, probs):
@@ -328,12 +353,24 @@ if __name__ == "__main__":
             top_prob = prob[top_idx].item()
             label = id_to_sub.get(top_idx, str(top_idx))
             
-            print(f"{text[:58]:<60} | {label:<20} | {top_prob:.1%}")
+            # Calculate Risk Mass
+            risk_mass = 0.0
+            if risk_indices:
+                risk_mass = torch.sum(prob[risk_indices]).item()
+            
+            # Ambiguity Check (Fix #2)
+            # If top confidence is very low, it might be OOD
+            display_label = label
+            if top_prob < 0.25:
+                display_label = f"{label} (?)"
+            
+            print(f"{text[:58]:<60} | {display_label:<20} | {top_prob:.1%} | {risk_mass:.1%}")
             
             results.append({
                 'text': text,
                 'top_label': label,
                 'confidence': top_prob,
+                'risk_mass': risk_mass,
                 'full_dist': prob.tolist()
             })
             
