@@ -117,10 +117,10 @@ def main():
         num_epochs=NUM_EPOCHS
     )
     
-    # H100 Optimization Strategy
-    # Maximize VRAM usage (H100 has 80GB)
+    # H100 / Blackwell Optimization Strategy
+    # Maximize VRAM usage (H100 has 80GB, RTX 6000 Blackwell has 96GB)
     if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
-        print("Overriding Training Args for H100 Optimization Strategy...")
+        print("Overriding Training Args for High-VRAM Optimization (H100/Blackwell)...")
         training_args.per_device_train_batch_size = 64
         training_args.gradient_accumulation_steps = 1 # Global batch size = 64 (per device) * 1 * N_devices
         training_args.bf16 = True
