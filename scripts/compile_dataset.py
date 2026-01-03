@@ -133,14 +133,6 @@ def get_emotion_score(row, target):
 
 def main():
     print("--- Starting Dataset Compilation (CPU Mode) ---")
-
-    # Ensure output directory exists immediately to fail fast
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        print(f"Verified data directory: {DATA_DIR}")
-    except Exception as e:
-        print(f"Error creating data directory {DATA_DIR}: {e}")
-        sys.exit(1)
     
     if not FAISS_AVAILABLE:
         print("Error: FAISS is required. Install faiss-cpu or faiss-gpu.")
@@ -153,6 +145,14 @@ def main():
     try:
         dataset = load_dataset("tim-maiden/mental-health-ai", split="train")
         print(f"Loaded Dataset: {len(dataset)} rows.")
+
+        # Ensure output directory exists (fail fast before processing)
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            print(f"Verified data directory: {DATA_DIR}")
+        except Exception as e:
+            print(f"Error creating data directory {DATA_DIR}: {e}")
+            sys.exit(1)
 
         print("Reconstructing embedding vectors (High-Performance Mode)...")
         table = dataset.data
