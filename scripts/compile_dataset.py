@@ -5,6 +5,7 @@ import numpy as np
 import json
 import pyarrow.parquet as pq
 from sklearn.model_selection import train_test_split
+from datasets import load_dataset
 
 # Import FAISS
 try:
@@ -48,6 +49,7 @@ def get_faiss_index(d, ref_vecs):
 def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     """
     Calculates the average cosine similarity to the k nearest neighbors.
+    Accepts raw numpy arrays.
     """
     if not FAISS_AVAILABLE:
         raise ImportError("FAISS is not installed.")
@@ -59,6 +61,7 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     ref_vecs = ref_vecs.astype(np.float32)
     
     # L2 Normalize vectors to ensure Inner Product == Cosine Similarity
+    # Note: modifying in-place if possible to save memory, but safe to copy if needed
     faiss.normalize_L2(query_vecs)
     faiss.normalize_L2(ref_vecs) 
     
@@ -71,17 +74,19 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     densities = np.mean(D, axis=1)
     return densities
 
-def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=None):
+def compute_soft_labels_faiss(query_vecs, teacher_vecs, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=None):
     """
     Computes soft labels using Weighted k-NN.
+    Accepts pre-fetched numpy arrays for vectors to avoid DF extraction overhead.
     """
     if not FAISS_AVAILABLE:
         raise ImportError("FAISS is not installed.")
 
     print(f"Computing k-NN Soft Labels (k={n_neighbors}, temp={temperature})...")
     
-    query_vecs = np.stack(query_df['embedding_vec'].values).astype(np.float32)
-    teacher_vecs = np.stack(teacher_df['embedding_vec'].values).astype(np.float32)
+    # Ensure float32
+    query_vecs = query_vecs.astype(np.float32)
+    teacher_vecs = teacher_vecs.astype(np.float32)
     
     # L2 Normalize
     faiss.normalize_L2(query_vecs)
@@ -104,6 +109,7 @@ def compute_soft_labels_faiss(query_df, teacher_df, n_neighbors=50, temperature=
     
     neighbor_classes = teacher_subs[indices]
     
+    # Vectorized Soft Label Calculation could be faster, but keeping iterative for safety/clarity first
     for i in range(len(query_vecs)):
         w = weights[i]
         classes = neighbor_classes[i]
@@ -132,21 +138,20 @@ def get_emotion_score(row, target):
     return 0.0
 
 def main():
-    print("--- Starting Dataset Compilation (CPU Mode) ---")
+    print("--- Starting Dataset Compilation (Memory Optimized) ---")
     
     if not FAISS_AVAILABLE:
         print("Error: FAISS is required. Install faiss-cpu or faiss-gpu.")
         sys.exit(1)
         
-    # 1. Load Data
+    # 1. Load Data Efficiently
     print(f"Loading data from Hugging Face Hub (tim-maiden/mental-health-ai)...")
-    from datasets import load_dataset
-
     try:
+        # Load dataset but DO NOT convert everything to pandas yet
         dataset = load_dataset("tim-maiden/mental-health-ai", split="train")
         print(f"Loaded Dataset: {len(dataset)} rows.")
 
-        # Ensure output directory exists (fail fast before processing)
+        # Ensure output directory exists
         try:
             os.makedirs(DATA_DIR, exist_ok=True)
             print(f"Verified data directory: {DATA_DIR}")
@@ -154,23 +159,31 @@ def main():
             print(f"Error creating data directory {DATA_DIR}: {e}")
             sys.exit(1)
 
-        print("Reconstructing embedding vectors (High-Performance Mode)...")
-        table = dataset.data
-        emb_column = table['embedding']
+        # A. Handle Embeddings (Keep as Numpy Matrix)
+        print("Mapping embeddings to Numpy (Zero-Copy mode)...")
+        dataset.set_format(type='numpy', columns=['embedding'])
         
-        print(f"Flattening {len(emb_column.chunks)} chunks manually to bypass offset limits...")
-        chunk_arrays = []
-        for chunk in emb_column.chunks:
-            chunk_arrays.append(chunk.flatten().to_numpy())
+        # This creates a view or single copy, distinct from the dataframe overhead
+        all_embeddings = dataset['embedding'] 
+        
+        # Ensure float32 for FAISS
+        # Note: If data is float64, this copy is necessary. If float32, it might be zero-copy.
+        if all_embeddings.dtype != np.float32:
+            print("Converting embeddings to float32...")
+            all_embeddings = all_embeddings.astype(np.float32)
             
-        flattened_data = np.concatenate(chunk_arrays)
-        matrix = flattened_data.reshape(-1, 1536)
-        
-        metadata_cols = [c for c in table.column_names if c != 'embedding']
-        df_all = table.select(metadata_cols).to_pandas()
-        df_all['embedding_vec'] = list(matrix)
-        print(f"Loaded {len(df_all)} rows successfully.")
+        print(f"Embedding Matrix Shape: {all_embeddings.shape} ({all_embeddings.nbytes / 1e9:.2f} GB)")
 
+        # B. Handle Metadata (Pandas - WITHOUT Embeddings)
+        print("Loading metadata to Pandas...")
+        # Remove embedding column to keep DataFrame lightweight
+        dataset_meta = dataset.remove_columns(['embedding'])
+        dataset_meta.reset_format() # Revert to default for to_pandas
+        df_all = dataset_meta.to_pandas()
+        
+        # CRITICAL: Track original indices to map back to all_embeddings
+        df_all['orig_index'] = df_all.index 
+        
     except Exception as e:
         print(f"Error loading dataset: {e}")
         sys.exit(1)
@@ -192,11 +205,13 @@ def main():
     
     train_mask = df_all['author'].isin(train_authors['author'])
     test_mask = df_all['author'].isin(test_authors['author'])
+    # Include unknown authors in train as per original logic
     unknown_mask = ~df_all['author'].isin(valid_authors['author'])
     train_mask = train_mask | unknown_mask
     
+    # Create Metadata Subsets
     train_df = df_all[train_mask].copy()
-    test_df = df_all[test_mask].copy()
+    test_df = df_all[test_mask].copy() # Simplifies the inverse mask logic
     
     print(f"Train Size: {len(train_df)}")
     print(f"Test Size:  {len(test_df)}")
@@ -218,8 +233,13 @@ def main():
     if len(risk_df_clean_emotion) == 0:
         risk_df_clean_emotion = risk_df.copy()
 
+    # Calculate Density using Indexed Embeddings
     print(f"Calculating Risk Self-Density (N={len(risk_df_clean_emotion)})...")
-    clean_risk_vecs = np.stack(risk_df_clean_emotion['embedding_vec'].values)
+    
+    # FETCH EMBEDDINGS BY INDEX
+    risk_indices = risk_df_clean_emotion['orig_index'].values
+    clean_risk_vecs = all_embeddings[risk_indices]
+    
     risk_density = calculate_density_faiss(clean_risk_vecs, clean_risk_vecs, k=NEIGHBOR_K)
     risk_df_clean_emotion['density'] = risk_density
     
@@ -231,7 +251,10 @@ def main():
     # ==========================================================
     print("\n--- Phase 2: Safe Sampling & Hard Negative Mining ---")
     safe_df = train_df[train_df['binary_label'] == 0].copy()
-    safe_vecs = np.stack(safe_df['embedding_vec'].values)
+    
+    # FETCH EMBEDDINGS BY INDEX
+    safe_indices = safe_df['orig_index'].values
+    safe_vecs = all_embeddings[safe_indices]
     
     print(f"Calculating Safe Self-Density (N={len(safe_df)})...")
     safe_density = calculate_density_faiss(safe_vecs, safe_vecs, k=NEIGHBOR_K)
@@ -251,9 +274,6 @@ def main():
     
     # Sampling Logic
     risk_count = len(clean_risk_df)
-    # REDUCED WEIGHTS: 
-    # 1:1 Ratio for Risk vs. Sad-Safe (instead of 1:2)
-    # 0.5 Ratio for Happy-Safe (less critical for distinction)
     target_sad = int(risk_count * 1.0) 
     target_happy = int(risk_count * 0.5)
 
@@ -285,10 +305,18 @@ def main():
     unique_subreddits = sorted(df_all['subreddit'].unique())
     subreddit_map = {sub: i for i, sub in enumerate(unique_subreddits)}
     
-    soft_labels_train = compute_soft_labels_faiss(final_train, final_train, 50, 1.0, subreddit_map)
+    # Get vectors for the final training set
+    train_indices = final_train['orig_index'].values
+    train_vecs = all_embeddings[train_indices]
+    
+    # Get vectors for the test set
+    test_indices = test_df['orig_index'].values
+    test_vecs = all_embeddings[test_indices]
+    
+    soft_labels_train = compute_soft_labels_faiss(train_vecs, train_vecs, final_train, 50, 1.0, subreddit_map)
     final_train['soft_label'] = soft_labels_train
     
-    soft_labels_test = compute_soft_labels_faiss(test_df, final_train, 50, 1.0, subreddit_map)
+    soft_labels_test = compute_soft_labels_faiss(test_vecs, train_vecs, final_train, 50, 1.0, subreddit_map)
     test_df['soft_label'] = soft_labels_test
     
     # ==========================================================
@@ -306,6 +334,7 @@ def main():
         out['label'] = out['binary_label'].astype(int)
         cols = ['text', 'label', 'soft_label']
         if 'subreddit' in out.columns: cols.append('subreddit')
+        # We drop orig_index, density, etc. to save space
         out[cols].to_parquet(filename, index=False)
         print(f"Saved {len(out)} to {filename}")
         
