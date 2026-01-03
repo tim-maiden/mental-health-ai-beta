@@ -133,6 +133,14 @@ def get_emotion_score(row, target):
 
 def main():
     print("--- Starting Dataset Compilation (CPU Mode) ---")
+
+    # Ensure output directory exists immediately to fail fast
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        print(f"Verified data directory: {DATA_DIR}")
+    except Exception as e:
+        print(f"Error creating data directory {DATA_DIR}: {e}")
+        sys.exit(1)
     
     if not FAISS_AVAILABLE:
         print("Error: FAISS is required. Install faiss-cpu or faiss-gpu.")
@@ -284,6 +292,10 @@ def main():
     # EXPORT
     # ==========================================================
     print("\n--- Exporting ---")
+    
+    # Ensure output directory exists
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
     with open(os.path.join(DATA_DIR, "subreddit_mapping.json"), "w") as f: json.dump(subreddit_map, f)
     
     def save_parquet(dataframe, filename):
