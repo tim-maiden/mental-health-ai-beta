@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import torch
 import wandb
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding, Trainer
 
 # Disable tokenizer parallelism
@@ -28,6 +28,9 @@ INPUT_FILE = os.path.join(DATA_DIR, "wildchat_silver_labels.pkl")
 OUTPUT_DIR = DISTILLATION_OUTPUT_DIR
 NUM_EPOCHS = DISTILLATION_EPOCHS
 
+# Default to the Hub ID, but allow local override
+DEFAULT_DATASET_ID = "tim-maiden/mental-health-silver-labels"
+
 def main():
     print(f"--- Starting Student Distillation (Model: {STUDENT_MODEL_ID}) ---")
     
@@ -41,26 +44,37 @@ def main():
         print("WandB init failed, using offline mode.")
         wandb.init(project=WANDB_PROJECT, mode="offline", name="student-distillation")
 
-    # 2. Load Silver Labels
-    if not os.path.exists(INPUT_FILE):
-        print(f"Error: Input file {INPUT_FILE} not found. Run inference.py first.")
-        sys.exit(1)
+    # 2. Load Data (Smart Switching)
+    # Check if a command line arg provided a file, otherwise use HF
+    dataset_id = DEFAULT_DATASET_ID
+    
+    print(f"Loading Silver Labels from: {dataset_id}...")
+    
+    dataset = None
+    try:
+        # Try loading from Hub
+        dataset = load_dataset(dataset_id, split="train")
+        print(f"Loaded {len(dataset)} rows from Hugging Face.")
         
-    print(f"Loading silver labels from {INPUT_FILE}...")
-    df = pd.read_pickle(INPUT_FILE)
-    
-    # Note: We retain all samples regardless of confidence. 
-    # The Soft Labels (probability distributions) inherently encode uncertainty, 
-    # allowing the student model to learn from the teacher's ambiguity.
-    
-    # Map 'full_dist' to 'labels'. The DataCollator will handle conversion to tensors.
-    df['labels'] = df['full_dist']
-    
-    # Convert to HF Dataset
-    dataset = Dataset.from_pandas(df[['text', 'labels']])
-    
+        # Rename 'full_dist' to 'labels' to match Trainer expectation
+        if "labels" not in dataset.column_names and "full_dist" in dataset.column_names:
+            dataset = dataset.rename_column("full_dist", "labels")
+            
+    except Exception as e:
+        print(f"Failed to load from Hub ({e}). Falling back to local file path...")
+        # Fallback to legacy local file logic
+        if not os.path.exists(INPUT_FILE):
+             print(f"Error: Local file {INPUT_FILE} not found.")
+             sys.exit(1)
+        df = pd.read_pickle(INPUT_FILE)
+        df['labels'] = df['full_dist']
+        dataset = Dataset.from_pandas(df[['text', 'labels']])
+
     # Split Train/Test
-    dataset = dataset.train_test_split(test_size=0.1)
+    # Fix: HuggingFace datasets return a DatasetDict on split
+    dataset_split = dataset.train_test_split(test_size=0.1, seed=42)
+    train_ds = dataset_split["train"]
+    test_ds = dataset_split["test"]
     
     # 3. Tokenizer
     print(f"Loading Tokenizer ({STUDENT_MODEL_ID})...")
@@ -69,11 +83,13 @@ def main():
     def preprocess_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=512)
     
-    tokenized_ds = dataset.map(preprocess_function, batched=True)
+    tokenized_ds = dataset_split.map(preprocess_function, batched=True)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     
     # 4. Model
-    num_labels = len(df['labels'].iloc[0])
+    # Retrieve number of labels from the first example of the training set
+    example_labels = dataset_split['train'][0]['labels']
+    num_labels = len(example_labels)
     print(f"Initializing Model with {num_labels} labels...")
     
     model = AutoModelForSequenceClassification.from_pretrained(
@@ -87,7 +103,7 @@ def main():
         output_dir=OUTPUT_DIR, 
         model_id=STUDENT_MODEL_ID, 
         num_epochs=NUM_EPOCHS,
-        train_size=len(dataset['train'])
+        train_size=len(dataset_split['train'])
     )
     
     # We use the same CustomTrainer which implements KLDivLoss

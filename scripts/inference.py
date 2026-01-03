@@ -10,7 +10,7 @@ from huggingface_hub import hf_hub_download
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.modeling.inference import load_model, predict_batch, is_clean_english, get_device
 from src.core.clients import supabase  # Import supabase client
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 
 # Configuration - Use environment-aware paths from config
 from src.config import MODEL_OUTPUT_DIR, DATA_DIR, OUTPUT_DIR
@@ -237,6 +237,21 @@ def run_inference(args):
     print(f"Saving {len(all_results)} results to {output_file}...")
     df_results = pd.DataFrame(all_results)
     df_results.to_pickle(output_file)
+    
+    # Hugging Face Upload
+    if args.upload_dataset:
+        print(f"--- Uploading Silver Labels to HF: {args.dataset_id} ---")
+        try:
+            # Convert DataFrame to HF Dataset
+            # Ensure columns are friendly types (lists are fine)
+            hf_dataset = Dataset.from_pandas(df_results)
+            
+            # Push to Hub (Private by default)
+            hf_dataset.push_to_hub(args.dataset_id, private=True)
+            print(f"Successfully uploaded dataset to https://huggingface.co/datasets/{args.dataset_id}")
+        except Exception as e:
+            print(f"Error uploading to Hugging Face: {e}")
+
     print(f"Done!")
 
 if __name__ == "__main__":
@@ -248,6 +263,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default=None, help="Output PKL file path")
     parser.add_argument("--model", type=str, default=None, help="Path to model or HF Repo ID")
     parser.add_argument("--subfolder", type=str, default=None, help="Subfolder in HF Repo")
+    parser.add_argument("--upload-dataset", action="store_true", help="Upload the results as a HF Dataset")
+    parser.add_argument("--dataset-id", type=str, default="tim-maiden/mental-health-silver-labels", help="Target HF Dataset ID")
     
     args = parser.parse_args()
     
