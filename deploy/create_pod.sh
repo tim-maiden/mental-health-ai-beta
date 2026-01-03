@@ -23,6 +23,8 @@ CMD+=(--volumeSize "$VOLUME_SIZE")
 CMD+=(--ports "8888/http")
 
 # --- LOAD ENVIRONMENT VARIABLES ---
+HF_TOKEN_FOUND=false
+
 if [ -f "$ENV_FILE" ]; then
     echo "Loading environment variables from $ENV_FILE..."
     while IFS='=' read -r key value || [ -n "$key" ]; do
@@ -42,10 +44,20 @@ if [ -f "$ENV_FILE" ]; then
         
         if [ -n "$key" ] && [ -n "$value" ]; then
             CMD+=(--env "$key=$value")
+            if [ "$key" == "HF_TOKEN" ]; then
+                HF_TOKEN_FOUND=true
+            fi
         fi
     done < "$ENV_FILE"
 else
     echo "Warning: $ENV_FILE not found. No environment variables will be set."
+fi
+
+if [ "$HF_TOKEN_FOUND" = false ]; then
+    echo "⚠️  WARNING: HF_TOKEN not found in .env file!"
+    echo "   The pipeline will FAIL to upload the model to Hugging Face."
+    echo "   Please add HF_TOKEN=your_token to .env before continuing."
+    read -p "   Press ENTER to continue anyway (or Ctrl+C to abort)..."
 fi
 
 # Ensure AWS vars are passed even if not in .env (if exported in shell)

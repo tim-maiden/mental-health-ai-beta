@@ -220,12 +220,40 @@ def main():
     # Push to Hub if configured
     try:
         print("Pushing model to Hugging Face Hub...")
-        # This will push the model to your-username/risk_classifier_deberta_small_v1 (or large)
-        # It relies on you being logged in or having HF_TOKEN env var set.
-        repo_name = f"risk-classifier-deberta-{MODEL_ID.split('/')[-1]}"
-        trainer.push_to_hub(repo_name)
-        tokenizer.push_to_hub(repo_name)
-        print(f"Successfully pushed model to {repo_name}")
+        # Uploads to your-username/mental-health-ai-models
+        # Subfolder: risk_classifier_deberta_large_v1 (or small)
+        
+        # Define the target repo
+        target_repo = "tim-maiden/mental-health-ai-models" 
+        
+        # The trainer.push_to_hub method is convenient but sometimes creates a new repo per model.
+        # To organize everything into ONE private repo with subfolders, we use tokenizer.push_to_hub properly
+        # OR we use the upload_folder helper which we already have in scripts/upload_model.py
+        
+        # Let's use the explicit HfApi approach for maximum control (Private Repo + Subfolder)
+        from huggingface_hub import HfApi
+        api = HfApi()
+        
+        # Create the private model repo if it doesn't exist
+        api.create_repo(repo_id=target_repo, exist_ok=True, private=True)
+        
+        # Calculate subfolder name based on model size
+        subfolder_name = f"risk_classifier_deberta_{MODEL_ID.split('/')[-1]}_v1"
+        if "large" in MODEL_ID:
+            subfolder_name = "risk_classifier_deberta_large_v1"
+        elif "small" in MODEL_ID:
+            subfolder_name = "risk_classifier_deberta_small_v1"
+            
+        print(f"Uploading to {target_repo}/{subfolder_name}...")
+        
+        api.upload_folder(
+            folder_path=OUTPUT_DIR,
+            repo_id=target_repo,
+            path_in_repo=subfolder_name,
+            ignore_patterns=["checkpoint-*", "runs/*"] # Skip heavy checkpoints and tensorboard logs
+        )
+        print(f"Successfully pushed model to {target_repo}/{subfolder_name}")
+        
     except Exception as e:
         print(f"Warning: Failed to push model to Hub: {e}")
     
