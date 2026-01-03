@@ -251,8 +251,11 @@ def main():
     
     # Sampling Logic
     risk_count = len(clean_risk_df)
-    target_sad = risk_count * 2
-    target_happy = risk_count * 1
+    # REDUCED WEIGHTS: 
+    # 1:1 Ratio for Risk vs. Sad-Safe (instead of 1:2)
+    # 0.5 Ratio for Happy-Safe (less critical for distinction)
+    target_sad = int(risk_count * 1.0) 
+    target_happy = int(risk_count * 0.5)
 
     max_unique_sad = int(target_sad / 3)
     max_unique_happy = int(target_happy / 2)
