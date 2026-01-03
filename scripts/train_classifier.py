@@ -117,16 +117,15 @@ def main():
         num_epochs=NUM_EPOCHS
     )
     
-    # H100 Optimization Strategy - DISABLED for A40 migration
-    # The A40 (48GB) cannot handle batch size 64 with DeBERTa-Large.
-    # We fallback to src/modeling/training.py defaults (Batch Size 32, Grad Accum 2)
-    # if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
-    #     print("Overriding Training Args for H100 Optimization Strategy...")
-    #     training_args.per_device_train_batch_size = 64
-    #     training_args.gradient_accumulation_steps = 1 # Global batch size = 64 (per device) * 1 * N_devices
-    #     training_args.bf16 = True
-    #     training_args.fp16 = False # Ensure FP16 is off
-    #     training_args.dataloader_num_workers = 8
+    # H100 Optimization Strategy
+    # Maximize VRAM usage (H100 has 80GB)
+    if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
+        print("Overriding Training Args for H100 Optimization Strategy...")
+        training_args.per_device_train_batch_size = 64
+        training_args.gradient_accumulation_steps = 1 # Global batch size = 64 (per device) * 1 * N_devices
+        training_args.bf16 = True
+        training_args.fp16 = False # Ensure FP16 is off
+        training_args.dataloader_num_workers = 8
         
     # Ensure correct metric is used despite caching issues
     training_args.metric_for_best_model = "eval_accuracy"

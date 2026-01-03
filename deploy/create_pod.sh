@@ -3,12 +3,11 @@ set -e
 
 # --- CONFIGURATION ---
 POD_NAME="mental-health-ai-training"
-GPU_TYPE="NVIDIA RTX 6000 Ada Generation" 
+GPU_TYPE="NVIDIA RTX PRO 6000 Blackwell Server Edition" 
 GPU_COUNT=1
 IMAGE_NAME="timarple/mental-health-ai:latest"
-CONTAINER_DISK_SIZE=100
-VOLUME_SIZE=100
-MEMORY=150
+CONTAINER_DISK_SIZE=50
+VOLUME_SIZE=50
 ENV_FILE=".env"
 
 # --- CONSTRUCT COMMAND ARRAY ---
@@ -19,7 +18,6 @@ CMD+=(--gpuType "$GPU_TYPE")
 CMD+=(--gpuCount "$GPU_COUNT")
 CMD+=(--secureCloud)
 CMD+=(--imageName "$IMAGE_NAME")
-CMD+=(--mem "$MEMORY")
 CMD+=(--containerDiskSize "$CONTAINER_DISK_SIZE")
 CMD+=(--volumeSize "$VOLUME_SIZE")
 CMD+=(--ports "8888/http")
