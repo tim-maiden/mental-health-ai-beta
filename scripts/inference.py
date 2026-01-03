@@ -5,6 +5,7 @@ import pandas as pd
 import json
 import torch
 from tqdm import tqdm
+from huggingface_hub import hf_hub_download
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.modeling.inference import load_model, predict_batch, is_clean_english, get_device
@@ -278,34 +279,45 @@ if __name__ == "__main__":
         model, tokenizer, device = load_model(model_path, **kwargs)
         probs = predict_batch(model, tokenizer, INPUT_TEXTS, device)
         
-            # Load mapping
-            id_to_sub = {}
-            mapping_found = False
-            
-            # 1. Try loading from model directory (Portable)
-            possible_paths = [
-                os.path.join(model_path, "subreddit_mapping.json"),
-                os.path.join(DATA_DIR, "subreddit_mapping.json")
-            ]
-            
-            # If running in Cloud/RunPod, explicit check for /workspace/models
-            if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
-                 possible_paths.append("/workspace/models/risk_classifier_deberta_large_v1/subreddit_mapping.json")
+        # Load mapping
+        id_to_sub = {}
+        mapping_found = False
+        
+        # 1. Try loading from model directory (Portable)
+        possible_paths = [
+            os.path.join(model_path, "subreddit_mapping.json"),
+            os.path.join(DATA_DIR, "subreddit_mapping.json")
+        ]
+        
+        # If running in Cloud/RunPod, explicit check for /workspace/models
+        if os.getenv("DEPLOY_ENV") in ["runpod", "cloud"]:
+             possible_paths.append("/workspace/models/risk_classifier_deberta_large_v1/subreddit_mapping.json")
 
-            for path in possible_paths:
-                if os.path.exists(path):
-                    try:
-                        with open(path, "r") as f:
-                            mapping = json.load(f)
-                        id_to_sub = {v: k for k, v in mapping.items()}
-                        # print(f"Loaded subreddit mapping from {path}")
-                        mapping_found = True
-                        break
-                    except Exception as e:
-                        print(f"Warning: Failed to load mapping from {path}: {e}")
-            
-            if not mapping_found:
-                 print("Warning: Could not load subreddit mapping. Output will show raw indices.")
+        # Try to download from HF if model arg looks like a repo ID
+        if args.model and "/" in args.model:
+            try:
+                # print(f"Attempting to download subreddit_mapping.json from HF: {args.model}")
+                subfolder = args.subfolder if args.subfolder else None
+                downloaded_path = hf_hub_download(repo_id=args.model, filename="subreddit_mapping.json", subfolder=subfolder)
+                possible_paths.append(downloaded_path)
+            except Exception as e:
+                # print(f"Could not download mapping from HF: {e}")
+                pass
+
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        mapping = json.load(f)
+                    id_to_sub = {v: k for k, v in mapping.items()}
+                    # print(f"Loaded subreddit mapping from {path}")
+                    mapping_found = True
+                    break
+                except Exception as e:
+                    print(f"Warning: Failed to load mapping from {path}: {e}")
+        
+        if not mapping_found:
+             print("Warning: Could not load subreddit mapping. Output will show raw indices.")
 
         print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'}")
         print("-" * 90)
