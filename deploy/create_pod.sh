@@ -3,7 +3,7 @@ set -e
 
 # --- CONFIGURATION ---
 POD_NAME="mental-health-ai-training"
-GPU_TYPE="NVIDIA A40" 
+GPU_TYPE="NVIDIA RTX 6000 Ada Generation" 
 GPU_COUNT=1
 IMAGE_NAME="timarple/mental-health-ai:latest"
 CONTAINER_DISK_SIZE=50
