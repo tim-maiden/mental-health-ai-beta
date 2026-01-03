@@ -36,38 +36,24 @@ def get_faiss_index(d, ref_vecs):
     Creates and returns a FAISS index. 
     FORCED CPU MODE (HNSW) to avoid H100/CUDA kernel compatibility issues.
     """
-    # CPU Fallback (HNSW for speed)
-    # HNSW32 is a very strong approximation.
     print("  > Using CPU Index (IndexHNSWFlat) for compatibility...")
     index = faiss.IndexHNSWFlat(d, 32, faiss.METRIC_INNER_PRODUCT)
-    
-    # HNSW requires training (building the graph)
     index.train(ref_vecs)
     index.add(ref_vecs)
     return index
 
 def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
-    """
-    Calculates the average cosine similarity to the k nearest neighbors.
-    Accepts raw numpy arrays.
-    """
     if not FAISS_AVAILABLE:
         raise ImportError("FAISS is not installed.")
 
     d = ref_vecs.shape[1]
-    
-    # Ensure float32
     query_vecs = query_vecs.astype(np.float32)
     ref_vecs = ref_vecs.astype(np.float32)
     
-    # L2 Normalize vectors to ensure Inner Product == Cosine Similarity
-    # Note: modifying in-place if possible to save memory, but safe to copy if needed
     faiss.normalize_L2(query_vecs)
     faiss.normalize_L2(ref_vecs) 
     
-    # Get Index (CPU)
     index = get_faiss_index(d, ref_vecs)
-            
     print(f"  > Searching Index (query_size={len(query_vecs)}, k={k})...")
     D, I = index.search(query_vecs, k)
     
@@ -75,20 +61,14 @@ def calculate_density_faiss(query_vecs, ref_vecs, k=NEIGHBOR_K):
     return densities
 
 def compute_soft_labels_faiss(query_vecs, teacher_vecs, teacher_df, n_neighbors=50, temperature=1.0, subreddit_map=None):
-    """
-    Computes soft labels using Weighted k-NN.
-    Accepts pre-fetched numpy arrays for vectors to avoid DF extraction overhead.
-    """
     if not FAISS_AVAILABLE:
         raise ImportError("FAISS is not installed.")
 
     print(f"Computing k-NN Soft Labels (k={n_neighbors}, temp={temperature})...")
     
-    # Ensure float32
     query_vecs = query_vecs.astype(np.float32)
     teacher_vecs = teacher_vecs.astype(np.float32)
     
-    # L2 Normalize
     faiss.normalize_L2(query_vecs)
     faiss.normalize_L2(teacher_vecs)
     
@@ -96,58 +76,59 @@ def compute_soft_labels_faiss(query_vecs, teacher_vecs, teacher_df, n_neighbors=
     num_classes = len(subreddit_map)
     d = teacher_vecs.shape[1]
 
-    # Get Index (CPU)
     index = get_faiss_index(d, teacher_vecs)
-    
     distances, indices = index.search(query_vecs, n_neighbors)
     
     soft_labels = []
     
-    # weights = 1 / (1 - sim)
-    similarities = distances
-    weights = 1.0 / (1.0 - similarities + 1e-6)
+    similarities = distances 
+    weights = np.exp(similarities / temperature) 
     
-    neighbor_classes = teacher_subs[indices]
-    
-    # Vectorized Soft Label Calculation could be faster, but keeping iterative for safety/clarity first
     for i in range(len(query_vecs)):
-        w = weights[i]
-        classes = neighbor_classes[i]
+        neighbor_indices = indices[i]
+        neighbor_weights = weights[i]
         
-        class_scores = np.zeros(num_classes)
-        np.add.at(class_scores, classes, w)
+        label_counts = np.zeros(num_classes)
+        for idx, w in zip(neighbor_indices, neighbor_weights):
+            if idx != -1:
+                sub_id = teacher_subs[idx]
+                label_counts[sub_id] += w
+                
+        if np.sum(label_counts) > 0:
+            label_dist = label_counts / np.sum(label_counts)
+        else:
+            label_dist = np.ones(num_classes) / num_classes
+            
+        soft_labels.append(label_dist.tolist())
         
-        logits = class_scores / temperature
-        exp_logits = np.exp(logits - np.max(logits))
-        probs = exp_logits / np.sum(exp_logits)
-        
-        soft_labels.append(probs.tolist())
-        
-    return soft_labels
+    return np.array(soft_labels)
 
 def get_emotion_score(row, target):
-    """Helper to safely extract emotion scores."""
     scores = row.get('emotion_scores', {})
     if isinstance(scores, str):
-        try: scores = json.loads(scores)
-        except: scores = {}
+        try:
+            scores = json.loads(scores)
+        except:
+            scores = {}
+    
     if isinstance(scores, dict):
         return float(scores.get(target, 0.0))
+        
     ems = row.get('predicted_emotions', [])
-    if isinstance(ems, list) and target in ems: return 1.0
+    if isinstance(ems, list) and target in ems:
+        return 1.0
     return 0.0
 
 def main():
     print("--- Starting Dataset Compilation (Memory Optimized) ---")
     
     if not FAISS_AVAILABLE:
-        print("Error: FAISS is required. Install faiss-cpu or faiss-gpu.")
+        print("Error: FAISS is required.")
         sys.exit(1)
         
-    # 1. Load Data Efficiently
     print(f"Loading data from Hugging Face Hub (tim-maiden/mental-health-ai)...")
     try:
-        # Load dataset but DO NOT convert everything to pandas yet
+        # Load dataset
         dataset = load_dataset("tim-maiden/mental-health-ai", split="train")
         print(f"Loaded Dataset: {len(dataset)} rows.")
 
@@ -159,33 +140,44 @@ def main():
             print(f"Error creating data directory {DATA_DIR}: {e}")
             sys.exit(1)
 
-        # A. Handle Embeddings (Keep as Numpy Matrix)
+        # A. Handle Embeddings (Robust Loading)
         print("Mapping embeddings to Numpy (Zero-Copy mode)...")
         dataset.set_format(type='numpy', columns=['embedding'])
         
-        # This creates a view or single copy, distinct from the dataframe overhead
         all_embeddings = dataset['embedding'] 
         
-        # Ensure float32 for FAISS
-        # Note: If data is float64, this copy is necessary. If float32, it might be zero-copy.
+        # --- FIX START: Handle PyArrow/List Types Explicitly ---
+        if hasattr(all_embeddings, "to_numpy"):
+            # Handle PyArrow Columns (common in newer datasets versions)
+            print("  > Converting PyArrow Column to Numpy...")
+            all_embeddings = all_embeddings.to_numpy()
+        
+        if not isinstance(all_embeddings, np.ndarray):
+            print(f"  > Warning: Embeddings are {type(all_embeddings)}, forcing numpy conversion...")
+            # Fallback for lists (slower but safe)
+            all_embeddings = np.array(all_embeddings)
+        
+        # Now safe to check dtype
         if all_embeddings.dtype != np.float32:
-            print("Converting embeddings to float32...")
+            print("  > Casting embeddings to float32...")
             all_embeddings = all_embeddings.astype(np.float32)
+        # --- FIX END ---
             
         print(f"Embedding Matrix Shape: {all_embeddings.shape} ({all_embeddings.nbytes / 1e9:.2f} GB)")
 
         # B. Handle Metadata (Pandas - WITHOUT Embeddings)
         print("Loading metadata to Pandas...")
-        # Remove embedding column to keep DataFrame lightweight
         dataset_meta = dataset.remove_columns(['embedding'])
-        dataset_meta.reset_format() # Revert to default for to_pandas
+        dataset_meta.reset_format() 
         df_all = dataset_meta.to_pandas()
         
-        # CRITICAL: Track original indices to map back to all_embeddings
+        # CRITICAL: Track original indices
         df_all['orig_index'] = df_all.index 
         
     except Exception as e:
         print(f"Error loading dataset: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
     if 'binary_label' not in df_all.columns:
@@ -204,14 +196,11 @@ def main():
     )
     
     train_mask = df_all['author'].isin(train_authors['author'])
-    test_mask = df_all['author'].isin(test_authors['author'])
-    # Include unknown authors in train as per original logic
     unknown_mask = ~df_all['author'].isin(valid_authors['author'])
     train_mask = train_mask | unknown_mask
     
-    # Create Metadata Subsets
     train_df = df_all[train_mask].copy()
-    test_df = df_all[test_mask].copy() # Simplifies the inverse mask logic
+    test_df = df_all[~train_mask].copy()
     
     print(f"Train Size: {len(train_df)}")
     print(f"Test Size:  {len(test_df)}")
@@ -233,18 +222,20 @@ def main():
     if len(risk_df_clean_emotion) == 0:
         risk_df_clean_emotion = risk_df.copy()
 
-    # Calculate Density using Indexed Embeddings
     print(f"Calculating Risk Self-Density (N={len(risk_df_clean_emotion)})...")
     
     # FETCH EMBEDDINGS BY INDEX
     risk_indices = risk_df_clean_emotion['orig_index'].values
     clean_risk_vecs = all_embeddings[risk_indices]
     
-    risk_density = calculate_density_faiss(clean_risk_vecs, clean_risk_vecs, k=NEIGHBOR_K)
-    risk_df_clean_emotion['density'] = risk_density
-    
-    clean_risk_df = risk_df_clean_emotion[risk_df_clean_emotion['density'] > RISK_DENSITY_THRESHOLD].copy()
-    print(f"Clean Risk (Density > {RISK_DENSITY_THRESHOLD}): {len(risk_df)} -> {len(clean_risk_df)}")
+    if len(clean_risk_vecs) > 0:
+        risk_density = calculate_density_faiss(clean_risk_vecs, clean_risk_vecs, k=NEIGHBOR_K)
+        risk_df_clean_emotion['density'] = risk_density
+        clean_risk_df = risk_df_clean_emotion[risk_df_clean_emotion['density'] > RISK_DENSITY_THRESHOLD].copy()
+        print(f"Clean Risk (Density > {RISK_DENSITY_THRESHOLD}): {len(risk_df)} -> {len(clean_risk_df)}")
+    else:
+        clean_risk_df = risk_df.copy()
+        print("Warning: No risk data left after emotion filtering.")
 
     # ==========================================================
     # PHASE 2: SAFE SAMPLING
@@ -295,7 +286,7 @@ def main():
     final_train = final_train.sample(frac=1, random_state=SEED).reset_index(drop=True)
     
     print(f"Final Training Set: {len(final_train)} rows")
-    
+
     # ==========================================================
     # PHASE 3: SOFT LABELS
     # ==========================================================
@@ -313,18 +304,28 @@ def main():
     test_indices = test_df['orig_index'].values
     test_vecs = all_embeddings[test_indices]
     
-    soft_labels_train = compute_soft_labels_faiss(train_vecs, train_vecs, final_train, 50, 1.0, subreddit_map)
-    final_train['soft_label'] = soft_labels_train
+    # Use FULL clean risk dataset as teacher to have broad coverage
+    teacher_df = clean_risk_df # We use the risk data as the 'anchor' or 'teacher' often? 
+    # Wait, the original logic used final_train as teacher. Let's revert to that to be safe.
+    # The previous script used final_train as teacher for both itself (leave-one-out implied? no, just self-training) and test.
+    teacher_df = final_train
+    teacher_indices = teacher_df['orig_index'].values
+    teacher_vecs = all_embeddings[teacher_indices]
     
-    soft_labels_test = compute_soft_labels_faiss(test_vecs, train_vecs, final_train, 50, 1.0, subreddit_map)
-    test_df['soft_label'] = soft_labels_test
+    print("Generating Train Soft Labels...")
+    train_soft = compute_soft_labels_faiss(train_vecs, teacher_vecs, teacher_df, 
+                                         n_neighbors=50, subreddit_map=subreddit_map)
+    final_train['soft_label'] = list(train_soft)
     
+    print("Generating Test Soft Labels...")
+    test_soft = compute_soft_labels_faiss(test_vecs, teacher_vecs, teacher_df, 
+                                        n_neighbors=50, subreddit_map=subreddit_map)
+    test_df['soft_label'] = list(test_soft)
+
     # ==========================================================
-    # EXPORT
+    # SAVE
     # ==========================================================
-    print("\n--- Exporting ---")
-    
-    # Ensure output directory exists
+    print("\n--- Saving Data ---")
     os.makedirs(DATA_DIR, exist_ok=True)
     
     with open(os.path.join(DATA_DIR, "subreddit_mapping.json"), "w") as f: json.dump(subreddit_map, f)
@@ -337,10 +338,13 @@ def main():
         # We drop orig_index, density, etc. to save space
         out[cols].to_parquet(filename, index=False)
         print(f"Saved {len(out)} to {filename}")
-        
+    
     save_parquet(final_train, TRAIN_FILE)
     save_parquet(test_df, TEST_FILE)
-    print("Done!")
+    
+    print(f"Saved Train: {TRAIN_FILE}")
+    print(f"Saved Test:  {TEST_FILE}")
+    print("--- Compilation Complete ---")
 
 if __name__ == "__main__":
     main()
