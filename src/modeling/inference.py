@@ -8,12 +8,12 @@ def get_device():
     device_str = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     return torch.device(device_str)
 
-def load_model(model_path):
+def load_model(model_path, **kwargs):
     device = get_device()
     print(f"Using device: {device}")
     
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, **kwargs)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path, **kwargs)
     
     model.to(device)
     return model, tokenizer, device

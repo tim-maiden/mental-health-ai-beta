@@ -141,18 +141,27 @@ def load_wildchat_generator_from_supabase(batch_size=32, limit=None):
 
 def run_inference(args):
     # Determine model path
-    model_path = STANDARD_PATH
-    if not os.path.exists(STANDARD_PATH):
-        # Fallback: try legacy path (for backward compatibility)
-        legacy_path = "models/risk_classifier_deberta_v1"
-        if os.path.exists(legacy_path):
-            model_path = legacy_path
-        else:
-            raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
+    if args.model:
+        model_path = args.model
+    else:
+        model_path = STANDARD_PATH
+        if not os.path.exists(STANDARD_PATH):
+            # Fallback: try legacy path (for backward compatibility)
+            legacy_path = "models/risk_classifier_deberta_v1"
+            if os.path.exists(legacy_path):
+                model_path = legacy_path
+            else:
+                # Keep original error if local default not found and no arg provided
+                # But allow HF loading if user provides it via args.model
+                pass 
 
     print(f"Loading Model from: {model_path}")
     
-    model, tokenizer, device = load_model(model_path)
+    kwargs = {}
+    if args.subfolder:
+        kwargs['subfolder'] = args.subfolder
+
+    model, tokenizer, device = load_model(model_path, **kwargs)
         
     if args.wildchat:
         default_output = os.path.join(OUTPUT_DIR, "wildchat_silver_labels.pkl")
@@ -236,6 +245,8 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples")
     parser.add_argument("--batch-size", type=int, default=32, help="Inference batch size")
     parser.add_argument("--output", type=str, default=None, help="Output PKL file path")
+    parser.add_argument("--model", type=str, default=None, help="Path to model or HF Repo ID")
+    parser.add_argument("--subfolder", type=str, default=None, help="Subfolder in HF Repo")
     
     args = parser.parse_args()
     
@@ -247,16 +258,24 @@ if __name__ == "__main__":
         run_inference(args)
     else:
         print("Running Standard Test Set...")
-        model_path = STANDARD_PATH
-        if not os.path.exists(STANDARD_PATH):
-            # Fallback: try legacy path (for backward compatibility)
-            legacy_path = "models/risk_classifier_deberta_v1"
-            if os.path.exists(legacy_path):
-                model_path = legacy_path
-            else:
-                raise FileNotFoundError(f"Model not found at {STANDARD_PATH} or {legacy_path}")
+        if args.model:
+            model_path = args.model
+        else:
+            model_path = STANDARD_PATH
+            if not os.path.exists(STANDARD_PATH):
+                # Fallback: try legacy path (for backward compatibility)
+                legacy_path = "models/risk_classifier_deberta_v1"
+                if os.path.exists(legacy_path):
+                    model_path = legacy_path
+                else:
+                    # If local not found and not explicit, maybe raise error or let load_model fail
+                    pass
 
-        model, tokenizer, device = load_model(model_path)
+        kwargs = {}
+        if args.subfolder:
+            kwargs['subfolder'] = args.subfolder
+
+        model, tokenizer, device = load_model(model_path, **kwargs)
         probs = predict_batch(model, tokenizer, INPUT_TEXTS, device)
         
         # Load mapping
@@ -271,9 +290,24 @@ if __name__ == "__main__":
 
         print(f"\n{'TEXT':<60} | {'TOP LABEL':<20} | {'CONF'}")
         print("-" * 90)
+        
+        results = []
         for text, prob in zip(INPUT_TEXTS, probs):
             top_idx = torch.argmax(prob).item()
             top_prob = prob[top_idx].item()
             label = id_to_sub.get(top_idx, str(top_idx))
             
             print(f"{text[:58]:<60} | {label:<20} | {top_prob:.1%}")
+            
+            results.append({
+                'text': text,
+                'top_label': label,
+                'confidence': top_prob,
+                'full_dist': prob.tolist()
+            })
+            
+        if args.output:
+             print(f"\nSaving results to {args.output}...")
+             os.makedirs(os.path.dirname(args.output), exist_ok=True)
+             pd.DataFrame(results).to_pickle(args.output)
+             print("Done.")

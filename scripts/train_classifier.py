@@ -149,6 +149,17 @@ def main():
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
     
+    # Copy subreddit_mapping.json to output dir so it gets uploaded with the model
+    try:
+        import shutil
+        mapping_src = os.path.join(DATA_DIR, "subreddit_mapping.json")
+        mapping_dst = os.path.join(OUTPUT_DIR, "subreddit_mapping.json")
+        if os.path.exists(mapping_src):
+            shutil.copy(mapping_src, mapping_dst)
+            print(f"Copied subreddit_mapping.json to {OUTPUT_DIR}")
+    except Exception as e:
+        print(f"Warning: Failed to copy subreddit_mapping.json: {e}")
+
     # Push to Hub if configured
     try:
         print("Pushing model to Hugging Face Hub...")
