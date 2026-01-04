@@ -75,11 +75,9 @@ if [ "$REDDIT_EXISTS" == "true" ]; then
     echo "✅ Dataset '$REDDIT_SILVER_DATASET_ID' found. Skipping Reddit inference."
 else
     echo "⚠️ Dataset '$REDDIT_SILVER_DATASET_ID' not found. Starting inference..."
-    # We downsample Reddit inference to 1M to match WildChat size roughly, saving compute
-    # This gives us ~2M total training rows (1M WildChat + 1M Reddit)
+    # Processing Full Reddit Dataset (No Limit)
     python scripts/inference.py \
         --reddit \
-        --limit 1000000 \
         --batch-size 32 \
         --upload-dataset \
         --dataset-id "$REDDIT_SILVER_DATASET_ID" \

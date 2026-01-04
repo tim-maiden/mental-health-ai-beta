@@ -3,7 +3,8 @@ set -e
 
 # --- CONFIGURATION ---
 POD_NAME="mental-health-ai-distillation"
-GPU_TYPE="NVIDIA RTX 6000 Ada Generation" # Cheaper than A100, sufficient for DistilBERT
+# GPU_TYPE="NVIDIA RTX 6000 Ada Generation" # Cheaper than A100, sufficient for DistilBERT
+GPU_TYPE="NVIDIA RTX PRO 6000 Blackwell Server Edition" 
 GPU_COUNT=1
 IMAGE_NAME="timarple/mental-health-ai:latest"
 CONTAINER_DISK_SIZE=40
