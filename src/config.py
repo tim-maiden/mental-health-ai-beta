@@ -120,4 +120,4 @@ TEST_FILE = os.path.join(DATA_DIR, "test.parquet")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
-DISTILLATION_OUTPUT_DIR = os.path.join(MODELS_DIR, "final_student_deberta_xsmall")
+DISTILLATION_OUTPUT_DIR = os.path.join(MODELS_DIR, "final_student_deberta_small")

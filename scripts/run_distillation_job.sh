@@ -5,7 +5,7 @@ set -e
 WILDCHAT_DATASET_ID="tim-maiden/mental-health-silver-wildchat"
 REDDIT_SILVER_DATASET_ID="tim-maiden/mental-health-silver-reddit"
 STUDENT_MODEL_REPO="tim-maiden/mental-health-ai-models"
-STUDENT_SUBFOLDER="student_deberta_xsmall_v1"
+STUDENT_SUBFOLDER="student_deberta_small_v1"
 
 # Teacher Model Configuration (for Inference Step)
 TEACHER_MODEL_REPO="tim-maiden/mental-health-ai-models"
