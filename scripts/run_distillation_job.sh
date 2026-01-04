@@ -29,14 +29,18 @@ echo "--- Step 2: Running Inference (Silver Label Generation) ---"
 echo "Checking availability of dataset: $DATASET_ID"
 DATASET_EXISTS=$(python -c "
 import os
+import sys
 from huggingface_hub import HfApi
 try:
     token = os.environ.get('HF_TOKEN')
+    if not token:
+        print('Warning: HF_TOKEN not found in python env', file=sys.stderr)
     api = HfApi(token=token)
+    # Check if dataset exists. Throws error if not found or unauthorized.
     api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
     print('true')
 except Exception as e:
-    # print(f'Debug: {e}') # Only enabled for debugging if needed
+    print(f'Debug: Failed to find dataset {e}', file=sys.stderr)
     print('false')
 ")
 
