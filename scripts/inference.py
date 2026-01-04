@@ -46,7 +46,7 @@ INPUT_TEXTS = [
 
 def load_lmsys_generator(batch_size=32, limit=None):
     """
-    Deprecated: Prefer loading WildChat from Supabase.
+    Deprecated: Prefer loading WildChat from Supabase or HF.
     Loads lmsys-chat-1m dataset in stream mode.
     """
     print(f"Loading lmsys-chat-1m dataset (Stream mode)...")
@@ -79,6 +79,46 @@ def load_lmsys_generator(batch_size=32, limit=None):
             if limit and count >= limit:
                 break
     
+    if batch_texts:
+        yield batch_ids, batch_texts
+
+def load_wildchat_generator_from_hf(batch_size=32, limit=None):
+    """
+    Generator that fetches WildChat chunks from Hugging Face directly (Streaming).
+    """
+    print(f"Loading allenai/WildChat dataset from Hugging Face (Stream mode)...")
+    dataset = load_dataset("allenai/WildChat", split="train", streaming=True)
+    
+    batch_texts = []
+    batch_ids = []
+    count = 0
+    
+    for row in dataset:
+        conversation = row['conversation']
+        row_id = row['conversation_hash'] # WildChat uses hash as ID
+        
+        # Iterate through turns to find user messages
+        # WildChat structure: list of dicts with 'role' and 'content'
+        for i, turn in enumerate(conversation):
+            if turn['role'] == 'user':
+                user_text = turn['content']
+                
+                # Basic filtering
+                if user_text and isinstance(user_text, str) and len(user_text.strip()) > 5:
+                    batch_texts.append(user_text)
+                    batch_ids.append(f"{row_id}_{i}")
+                    
+                    if len(batch_texts) == batch_size:
+                        yield batch_ids, batch_texts
+                        batch_texts = []
+                        batch_ids = []
+                    
+                    count += 1
+                    if limit and count >= limit:
+                        break
+        if limit and count >= limit:
+            break
+            
     if batch_texts:
         yield batch_ids, batch_texts
 
@@ -166,8 +206,15 @@ def run_inference(args):
         
     if args.wildchat:
         default_output = os.path.join(OUTPUT_DIR, "wildchat_silver_labels.pkl")
-        data_gen = load_wildchat_generator_from_supabase(batch_size=args.batch_size, limit=args.limit)
-        dataset_name = "WildChat (Supabase)"
+        # Use HF loader if requested, otherwise fallback to Supabase (or make HF default if desired)
+        # Given user preference for HF:
+        if args.source == "supabase":
+             data_gen = load_wildchat_generator_from_supabase(batch_size=args.batch_size, limit=args.limit)
+             dataset_name = "WildChat (Supabase)"
+        else:
+             data_gen = load_wildchat_generator_from_hf(batch_size=args.batch_size, limit=args.limit)
+             dataset_name = "WildChat (HF)"
+
     else:
         default_output = os.path.join(OUTPUT_DIR, "lmsys_risk_scores.pkl")
         data_gen = load_lmsys_generator(batch_size=args.batch_size, limit=args.limit)
@@ -262,7 +309,8 @@ def run_inference(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run inference on test texts or LMSYS/WildChat dataset.")
     parser.add_argument("--lmsys", action="store_true", help="Run inference on LMSYS chat dataset")
-    parser.add_argument("--wildchat", action="store_true", help="Run inference on WildChat dataset (from Supabase)")
+    parser.add_argument("--wildchat", action="store_true", help="Run inference on WildChat dataset")
+    parser.add_argument("--source", type=str, default="hf", choices=["hf", "supabase"], help="Source for WildChat data (default: hf)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples")
     parser.add_argument("--batch-size", type=int, default=32, help="Inference batch size")
     parser.add_argument("--output", type=str, default=None, help="Output PKL file path")
