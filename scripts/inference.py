@@ -87,8 +87,22 @@ def load_wildchat_generator_from_hf(batch_size=32, limit=None):
     Generator that fetches WildChat chunks from Hugging Face directly (Streaming).
     """
     print(f"Loading allenai/WildChat-1M dataset from Hugging Face (Stream mode)...")
-    dataset = load_dataset("allenai/WildChat-1M", split="train", streaming=True)
     
+    dataset = None
+    max_retries = 5
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            dataset = load_dataset("allenai/WildChat-1M", split="train", streaming=True)
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Error: Failed to load dataset after {max_retries} attempts.")
+                raise e
+            print(f"Warning: Connection failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+            
     batch_texts = []
     batch_ids = []
     count = 0
