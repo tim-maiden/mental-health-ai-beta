@@ -86,8 +86,8 @@ def load_wildchat_generator_from_hf(batch_size=32, limit=None):
     """
     Generator that fetches WildChat chunks from Hugging Face directly (Streaming).
     """
-    print(f"Loading allenai/WildChat dataset from Hugging Face (Stream mode)...")
-    dataset = load_dataset("allenai/WildChat", split="train", streaming=True)
+    print(f"Loading allenai/WildChat-1M dataset from Hugging Face (Stream mode)...")
+    dataset = load_dataset("allenai/WildChat-1M", split="train", streaming=True)
     
     batch_texts = []
     batch_ids = []
