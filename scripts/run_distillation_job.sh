@@ -24,16 +24,37 @@ fi
 
 # 2. Run Inference (Generate Silver Labels)
 echo "--- Step 2: Running Inference (Silver Label Generation) ---"
-# We run inference on WildChat data using the Teacher Model from HF
-# We limit to 100k samples to keep runtime reasonable (adjust as needed)
-python scripts/inference.py \
-    --wildchat \
-    --limit 100000 \
-    --batch-size 32 \
-    --upload-dataset \
-    --dataset-id "$DATASET_ID" \
-    --model "$TEACHER_MODEL_REPO" \
-    --subfolder "$TEACHER_SUBFOLDER"
+
+# Check if dataset exists on Hugging Face to avoid redundant computation
+echo "Checking availability of dataset: $DATASET_ID"
+DATASET_EXISTS=$(python -c "
+from huggingface_hub import HfApi
+try:
+    api = HfApi()
+    api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
+    print('true')
+except:
+    print('false')
+")
+
+if [ "$DATASET_EXISTS" == "true" ]; then
+    echo "✅ Dataset '$DATASET_ID' found on Hugging Face."
+    echo "   Skipping inference step (Silver Label Generation)."
+else
+    echo "⚠️ Dataset '$DATASET_ID' not found."
+    echo "   Starting inference to generate silver labels..."
+    
+    # We run inference on WildChat data using the Teacher Model from HF
+    # We limit to 100k samples to keep runtime reasonable (adjust as needed)
+    python scripts/inference.py \
+        --wildchat \
+        --limit 100000 \
+        --batch-size 32 \
+        --upload-dataset \
+        --dataset-id "$DATASET_ID" \
+        --model "$TEACHER_MODEL_REPO" \
+        --subfolder "$TEACHER_SUBFOLDER"
+fi
 
 # 3. Run Training (Distillation)
 echo "--- Step 3: Training Student Model ---"
@@ -42,15 +63,23 @@ python scripts/train_distilled.py
 # 4. Upload Result
 echo "--- Step 4: Uploading Student Model to HF ---"
 # We reuse your existing upload script, pointing to the output directory defined in config.py
-# (DISTILLATION_OUTPUT_DIR = "models/final_student_deberta_xsmall")
+# We dynamically import the path from config.py to ensure consistency with where the model was saved
 
-# We use the explicit upload command to ensure it goes to the right subfolder
 python -c "
 from huggingface_hub import HfApi
 import os
+import sys
+
+# Add current directory to path so we can import src
+sys.path.append(os.getcwd())
+
+from src.config import DISTILLATION_OUTPUT_DIR
+
 api = HfApi()
+print(f'Uploading from: {DISTILLATION_OUTPUT_DIR}')
+
 api.upload_folder(
-    folder_path='models/final_student_deberta_xsmall',
+    folder_path=DISTILLATION_OUTPUT_DIR,
     repo_id='${STUDENT_MODEL_REPO}',
     path_in_repo='${STUDENT_SUBFOLDER}',
     ignore_patterns=['checkpoint-*', 'runs/*']
