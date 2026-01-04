@@ -37,7 +37,9 @@ try:
         print('Warning: HF_TOKEN not found in python env', file=sys.stderr)
     api = HfApi(token=token)
     # Check if dataset exists. Throws error if not found or unauthorized.
-    api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
+    # api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
+    # Fix: remove repo_type argument which is causing the error
+    api.dataset_info(repo_id='${DATASET_ID}')
     print('true')
 except Exception as e:
     print(f'Debug: Failed to find dataset {e}', file=sys.stderr)
