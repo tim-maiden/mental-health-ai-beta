@@ -82,20 +82,11 @@ def main():
     reddit_train = reddit_split["train"]
     reddit_test = reddit_split["test"]
     
-    # Balancing Logic (Dynamic)
-    wildchat_size = len(wildchat_train)
-    reddit_size = len(reddit_train)
+    # Balancing Logic - SKIPPED to avoid data loss
+    # We simply concatenate all available data. Transformers are robust to mild imbalance.
+    print(f"Skipping Downsampling. Using full datasets.")
     
-    if reddit_size > wildchat_size:
-        print(f"Balancing: Downsampling Reddit Train ({reddit_size}) to match WildChat ({wildchat_size})...")
-        reddit_train = reddit_train.shuffle(seed=42).select(range(wildchat_size))
-    elif wildchat_size > reddit_size:
-        print(f"Balancing: Downsampling WildChat Train ({wildchat_size}) to match Reddit ({reddit_size})...")
-        wildchat_train = wildchat_train.shuffle(seed=42).select(range(reddit_size))
-    else:
-        print(f"Datasets are already balanced ({wildchat_size} rows).")
-    
-    print(f"Data Stats (After Balancing):")
+    print(f"Data Stats:")
     print(f"  WildChat Train: {len(wildchat_train)}")
     print(f"  Reddit Train:   {len(reddit_train)}")
     print(f"  WildChat Test:  {len(wildchat_test)}")
