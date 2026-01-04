@@ -72,7 +72,7 @@ WARMUP_RATIO = 0.1
 SAVE_TOTAL_LIMIT = 1
 
 # Distillation
-STUDENT_MODEL_ID = "microsoft/deberta-v3-xsmall"
+STUDENT_MODEL_ID = "microsoft/deberta-v3-small"
 DISTILLATION_EPOCHS = 5
 
 # --- INFERENCE CONFIGURATION ---

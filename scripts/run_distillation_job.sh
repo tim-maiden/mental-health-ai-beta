@@ -66,8 +66,8 @@ else
 fi
 
 # 3. Run Training (Distillation)
-echo "--- Step 3: Training Student Model ---"
-python scripts/train_distilled.py 
+echo "--- Step 3: Training Student Model (Mixed Strategy) ---"
+python scripts/train_mixed_student.py 
 
 # 4. Upload Result
 echo "--- Step 4: Uploading Student Model to HF ---"
