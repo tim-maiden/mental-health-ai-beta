@@ -72,7 +72,7 @@ WARMUP_RATIO = 0.1
 SAVE_TOTAL_LIMIT = 1
 
 # Distillation
-STUDENT_MODEL_ID = "distilbert-base-uncased"
+STUDENT_MODEL_ID = "microsoft/deberta-v3-xsmall"
 DISTILLATION_EPOCHS = 5
 
 # --- INFERENCE CONFIGURATION ---
@@ -120,4 +120,4 @@ TEST_FILE = os.path.join(DATA_DIR, "test.parquet")
 
 # Model Paths (include model size to avoid conflicts between local/cloud models)
 MODEL_OUTPUT_DIR = os.path.join(MODELS_DIR, f"risk_classifier_deberta_{MODEL_SIZE}_v1")
-DISTILLATION_OUTPUT_DIR = os.path.join(MODELS_DIR, "final_student_distilbert")
+DISTILLATION_OUTPUT_DIR = os.path.join(MODELS_DIR, "final_student_deberta_xsmall")

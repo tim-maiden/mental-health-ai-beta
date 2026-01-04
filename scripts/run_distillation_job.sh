@@ -4,7 +4,7 @@ set -e
 # --- CONFIGURATION ---
 DATASET_ID="tim-maiden/mental-health-silver-labels"
 STUDENT_MODEL_REPO="tim-maiden/mental-health-ai-models"
-STUDENT_SUBFOLDER="student_distilbert_v1"
+STUDENT_SUBFOLDER="student_deberta_xsmall_v1"
 
 # Teacher Model Configuration (for Inference Step)
 TEACHER_MODEL_REPO="tim-maiden/mental-health-ai-models"
@@ -42,7 +42,7 @@ python scripts/train_distilled.py
 # 4. Upload Result
 echo "--- Step 4: Uploading Student Model to HF ---"
 # We reuse your existing upload script, pointing to the output directory defined in config.py
-# (DISTILLATION_OUTPUT_DIR = "models/final_student_distilbert")
+# (DISTILLATION_OUTPUT_DIR = "models/final_student_deberta_xsmall")
 
 # We use the explicit upload command to ensure it goes to the right subfolder
 python -c "
@@ -50,7 +50,7 @@ from huggingface_hub import HfApi
 import os
 api = HfApi()
 api.upload_folder(
-    folder_path='models/final_student_distilbert',
+    folder_path='models/final_student_deberta_xsmall',
     repo_id='${STUDENT_MODEL_REPO}',
     path_in_repo='${STUDENT_SUBFOLDER}',
     ignore_patterns=['checkpoint-*', 'runs/*']
