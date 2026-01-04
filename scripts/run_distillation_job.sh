@@ -28,12 +28,15 @@ echo "--- Step 2: Running Inference (Silver Label Generation) ---"
 # Check if dataset exists on Hugging Face to avoid redundant computation
 echo "Checking availability of dataset: $DATASET_ID"
 DATASET_EXISTS=$(python -c "
+import os
 from huggingface_hub import HfApi
 try:
-    api = HfApi()
+    token = os.environ.get('HF_TOKEN')
+    api = HfApi(token=token)
     api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
     print('true')
-except:
+except Exception as e:
+    # print(f'Debug: {e}') # Only enabled for debugging if needed
     print('false')
 ")
 
