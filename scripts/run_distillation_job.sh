@@ -2,7 +2,7 @@
 set -e
 
 # --- CONFIGURATION ---
-DATASET_ID="tim-maiden/mental-health-silver-labels"
+DATASET_ID="tim-maiden/mental-health-silver-labels-v2"
 STUDENT_MODEL_REPO="tim-maiden/mental-health-ai-models"
 STUDENT_SUBFOLDER="student_deberta_xsmall_v1"
 
@@ -54,10 +54,9 @@ else
     echo "   Starting inference to generate silver labels..."
     
     # We run inference on WildChat data using the Teacher Model from HF
-    # We limit to 100k samples to keep runtime reasonable (adjust as needed)
+    # PROCESSING FULL DATASET (No Limit)
     python scripts/inference.py \
         --wildchat \
-        --limit 100000 \
         --batch-size 32 \
         --upload-dataset \
         --dataset-id "$DATASET_ID" \

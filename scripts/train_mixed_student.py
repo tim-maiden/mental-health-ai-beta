@@ -25,7 +25,7 @@ from src.config import (
 )
 
 # Config
-WILDCHAT_DATASET_ID = "tim-maiden/mental-health-silver-labels"
+WILDCHAT_DATASET_ID = "tim-maiden/mental-health-silver-labels-v2"
 REDDIT_DATASET_ID = "tim-maiden/mental-health-ai"
 OUTPUT_DIR = DISTILLATION_OUTPUT_DIR
 NUM_EPOCHS = DISTILLATION_EPOCHS
@@ -68,6 +68,19 @@ def main():
     print(f"Loading Reddit Gold Data from: {REDDIT_DATASET_ID}...")
     # Attempt to load from HF. If it's private, ensure HF_TOKEN is set.
     reddit_ds = load_dataset(REDDIT_DATASET_ID, split="train") 
+    
+    # Downsample the LARGER dataset to match the SMALLER one (1:1 balance)
+    wildchat_size = len(wildchat_ds)
+    reddit_size = len(reddit_ds)
+    
+    if reddit_size > wildchat_size:
+        print(f"Balancing: Downsampling Reddit ({reddit_size}) to match WildChat ({wildchat_size})...")
+        reddit_ds = reddit_ds.shuffle(seed=42).select(range(wildchat_size))
+    elif wildchat_size > reddit_size:
+        print(f"Balancing: Downsampling WildChat ({wildchat_size}) to match Reddit ({reddit_size})...")
+        wildchat_ds = wildchat_ds.shuffle(seed=42).select(range(reddit_size))
+    else:
+        print(f"Datasets are already balanced ({wildchat_size} rows).")
     
     # Determine num_labels from WildChat (which has the full distribution)
     example_labels = wildchat_train[0]['labels']
