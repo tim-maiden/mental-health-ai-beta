@@ -194,6 +194,54 @@ def load_wildchat_generator_from_supabase(batch_size=32, limit=None):
     if buffer_ids:
         yield buffer_ids, buffer_texts
 
+def load_reddit_generator_from_hf(batch_size=32, limit=None):
+    """
+    Generator that fetches Reddit chunks from Hugging Face directly (Streaming).
+    """
+    print(f"Loading tim-maiden/mental-health-ai dataset from Hugging Face (Stream mode)...")
+    
+    dataset = None
+    max_retries = 5
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            dataset = load_dataset("tim-maiden/mental-health-ai", split="train", streaming=True)
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Error: Failed to load dataset after {max_retries} attempts.")
+                raise e
+            print(f"Warning: Connection failed (attempt {attempt+1}/{max_retries}): {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+            
+    batch_texts = []
+    batch_ids = []
+    count = 0
+    
+    for row in dataset:
+        # Assuming Reddit data has 'input' as the text column (based on ingestion script)
+        # or 'text'
+        text = row.get('input') or row.get('text')
+        # Use post_id as ID if available
+        row_id = row.get('post_id') or str(count)
+        
+        if text and isinstance(text, str) and len(text.strip()) > 5:
+            batch_texts.append(text)
+            batch_ids.append(row_id)
+            
+            if len(batch_texts) == batch_size:
+                yield batch_ids, batch_texts
+                batch_texts = []
+                batch_ids = []
+            
+            count += 1
+            if limit and count >= limit:
+                break
+                
+    if batch_texts:
+        yield batch_ids, batch_texts
+
 def run_inference(args):
     # Determine model path
     if args.model:
@@ -228,6 +276,11 @@ def run_inference(args):
         else:
              data_gen = load_wildchat_generator_from_hf(batch_size=args.batch_size, limit=args.limit)
              dataset_name = "WildChat (HF)"
+    
+    elif args.reddit:
+        default_output = os.path.join(OUTPUT_DIR, "reddit_silver_labels.pkl")
+        data_gen = load_reddit_generator_from_hf(batch_size=args.batch_size, limit=args.limit)
+        dataset_name = "Reddit (HF)"
 
     else:
         default_output = os.path.join(OUTPUT_DIR, "lmsys_risk_scores.pkl")
@@ -324,6 +377,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run inference on test texts or LMSYS/WildChat dataset.")
     parser.add_argument("--lmsys", action="store_true", help="Run inference on LMSYS chat dataset")
     parser.add_argument("--wildchat", action="store_true", help="Run inference on WildChat dataset")
+    parser.add_argument("--reddit", action="store_true", help="Run inference on Reddit dataset (tim-maiden/mental-health-ai)")
     parser.add_argument("--source", type=str, default="hf", choices=["hf", "supabase"], help="Source for WildChat data (default: hf)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples")
     parser.add_argument("--batch-size", type=int, default=32, help="Inference batch size")
@@ -335,7 +389,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    if args.lmsys or args.wildchat:
+    if args.lmsys or args.wildchat or args.reddit:
         if args.output:
             os.makedirs(os.path.dirname(args.output), exist_ok=True)
         else:

@@ -25,107 +25,77 @@ from src.config import (
 )
 
 # Config
-WILDCHAT_DATASET_ID = "tim-maiden/mental-health-silver-labels-v2"
-REDDIT_DATASET_ID = "tim-maiden/mental-health-ai"
+WILDCHAT_SILVER_ID = "tim-maiden/mental-health-silver-wildchat"
+REDDIT_SILVER_ID = "tim-maiden/mental-health-silver-reddit"
 OUTPUT_DIR = DISTILLATION_OUTPUT_DIR
 NUM_EPOCHS = DISTILLATION_EPOCHS
 
-def to_soft_label(hard_label, num_classes):
+def prepare_silver_dataset(dataset):
     """
-    Converts a hard integer label to a one-hot soft label distribution.
+    Standardizes a silver dataset (renaming columns).
     """
-    distribution = [0.0] * num_classes
-    if 0 <= hard_label < num_classes:
-        distribution[hard_label] = 1.0
-    return distribution
+    if "labels" not in dataset.column_names and "full_dist" in dataset.column_names:
+        dataset = dataset.rename_column("full_dist", "labels")
+    
+    # Ensure text column is named 'text'
+    if "input" in dataset.column_names and "text" not in dataset.column_names:
+        dataset = dataset.rename_column("input", "text")
+        
+    return dataset
 
 def main():
-    print(f"--- Starting Mixed Student Distillation (Model: {STUDENT_MODEL_ID}) ---")
-    print(f"--- Strategy: Mixed Training (WildChat Silver + Reddit Gold) ---")
+    print(f"--- Starting Student Distillation (Model: {STUDENT_MODEL_ID}) ---")
+    print(f"--- Strategy: All-Silver (WildChat Silver + Reddit Silver) ---")
     
     # 1. WandB Init
     if "WANDB_API_KEY" in os.environ:
         wandb.login(key=os.environ["WANDB_API_KEY"])
     
     try:
-        wandb.init(project=WANDB_PROJECT, name="student-distillation-mixed", settings=wandb.Settings(init_timeout=300))
+        wandb.init(project=WANDB_PROJECT, name="student-distillation-all-silver", settings=wandb.Settings(init_timeout=300))
     except:
         print("WandB init failed, using offline mode.")
-        wandb.init(project=WANDB_PROJECT, mode="offline", name="student-distillation-mixed")
+        wandb.init(project=WANDB_PROJECT, mode="offline", name="student-distillation-all-silver")
 
-    # 2. Load WildChat Data (Silver)
-    print(f"Loading WildChat Silver Labels from: {WILDCHAT_DATASET_ID}...")
-    wildchat_ds = load_dataset(WILDCHAT_DATASET_ID, split="train")
-    if "labels" not in wildchat_ds.column_names and "full_dist" in wildchat_ds.column_names:
-        wildchat_ds = wildchat_ds.rename_column("full_dist", "labels")
+    # 2. Load WildChat Silver
+    print(f"Loading WildChat Silver from: {WILDCHAT_SILVER_ID}...")
+    wildchat_ds = load_dataset(WILDCHAT_SILVER_ID, split="train")
+    wildchat_ds = prepare_silver_dataset(wildchat_ds)
     
     # Split WildChat
     wildchat_split = wildchat_ds.train_test_split(test_size=0.1, seed=42)
     wildchat_train = wildchat_split["train"]
     wildchat_test = wildchat_split["test"]
     
-    # 3. Load Reddit Data (Gold)
-    print(f"Loading Reddit Gold Data from: {REDDIT_DATASET_ID}...")
-    # Attempt to load from HF. If it's private, ensure HF_TOKEN is set.
-    reddit_ds = load_dataset(REDDIT_DATASET_ID, split="train") 
-    
-    # Downsample the LARGER dataset to match the SMALLER one (1:1 balance)
-    wildchat_size = len(wildchat_ds)
-    reddit_size = len(reddit_ds)
-    
-    if reddit_size > wildchat_size:
-        print(f"Balancing: Downsampling Reddit ({reddit_size}) to match WildChat ({wildchat_size})...")
-        reddit_ds = reddit_ds.shuffle(seed=42).select(range(wildchat_size))
-    elif wildchat_size > reddit_size:
-        print(f"Balancing: Downsampling WildChat ({wildchat_size}) to match Reddit ({reddit_size})...")
-        wildchat_ds = wildchat_ds.shuffle(seed=42).select(range(reddit_size))
-    else:
-        print(f"Datasets are already balanced ({wildchat_size} rows).")
-    
-    # Determine num_labels from WildChat (which has the full distribution)
+    # 3. Load Reddit Silver
+    print(f"Loading Reddit Silver from: {REDDIT_SILVER_ID}...")
+    reddit_ds = load_dataset(REDDIT_SILVER_ID, split="train") 
+    reddit_ds = prepare_silver_dataset(reddit_ds)
+
+    # Determine num_labels from WildChat
     example_labels = wildchat_train[0]['labels']
     num_labels = len(example_labels)
     print(f"Detected {num_labels} classes from Silver labels.")
 
-    # Preprocess Reddit Data to match WildChat format
-    # Reddit data has 'label' (int) and 'text' (str). We need 'labels' (list<float>).
-    # Check if 'label' column exists, if not check 'binary_label' or similar
-    
-    # Note: The reddit parquet usually has 'label' as the target integer.
-    # We need to map this to soft labels.
-    
-    def process_reddit(example):
-        # Create soft label
-        label_id = example.get('label')
-        if label_id is None:
-             # Fallback if label col is missing (should not happen if dataset is correct)
-             return {"labels": [0.0] * num_labels}
-        
-        return {"labels": to_soft_label(label_id, num_labels)}
-
-    print("Preprocessing Reddit data to generate soft labels...")
-    # Filter out columns we don't need to avoid schema mismatches
-    cols_to_keep = ['text', 'label']
-    reddit_clean = reddit_ds.select_columns([c for c in cols_to_keep if c in reddit_ds.column_names])
-    
-    # Apply transformation
-    reddit_mapped = reddit_clean.map(process_reddit)
-    
-    # Remove original 'label' column to match WildChat schema completely
-    if 'label' in reddit_mapped.column_names:
-        reddit_mapped = reddit_mapped.remove_columns(['label'])
-    
-    # Ensure text column match
-    if 'input' in reddit_mapped.column_names and 'text' not in reddit_mapped.column_names:
-         reddit_mapped = reddit_mapped.rename_column('input', 'text')
-
     # Split Reddit
-    # Use a fixed seed to ensure we don't leak train data into test if we re-run
-    reddit_split = reddit_mapped.train_test_split(test_size=0.1, seed=42)
+    reddit_split = reddit_ds.train_test_split(test_size=0.1, seed=42)
     reddit_train = reddit_split["train"]
     reddit_test = reddit_split["test"]
     
-    print(f"Data Stats:")
+    # Balancing Logic (Dynamic)
+    wildchat_size = len(wildchat_train)
+    reddit_size = len(reddit_train)
+    
+    if reddit_size > wildchat_size:
+        print(f"Balancing: Downsampling Reddit Train ({reddit_size}) to match WildChat ({wildchat_size})...")
+        reddit_train = reddit_train.shuffle(seed=42).select(range(wildchat_size))
+    elif wildchat_size > reddit_size:
+        print(f"Balancing: Downsampling WildChat Train ({wildchat_size}) to match Reddit ({reddit_size})...")
+        wildchat_train = wildchat_train.shuffle(seed=42).select(range(reddit_size))
+    else:
+        print(f"Datasets are already balanced ({wildchat_size} rows).")
+    
+    print(f"Data Stats (After Balancing):")
     print(f"  WildChat Train: {len(wildchat_train)}")
     print(f"  Reddit Train:   {len(reddit_train)}")
     print(f"  WildChat Test:  {len(wildchat_test)}")
@@ -133,7 +103,7 @@ def main():
     
     # 4. Concatenate Training Data
     combined_train = concatenate_datasets([wildchat_train, reddit_train])
-    combined_train = combined_train.shuffle(seed=42) # Important to shuffle mixed data
+    combined_train = combined_train.shuffle(seed=42) 
     print(f"Combined Training Set: {len(combined_train)}")
 
     # 5. Tokenizer & Model
@@ -158,9 +128,6 @@ def main():
     )
     
     # 6. Trainer
-    # We use Reddit Test as the primary eval set during training for early stopping,
-    # as it represents the "Ground Truth".
-    
     training_args = get_training_args(
         output_dir=OUTPUT_DIR, 
         model_id=STUDENT_MODEL_ID, 
@@ -172,7 +139,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=tokenized_train,
-        eval_dataset=tokenized_reddit_test, # Optimize for Gold Labels
+        eval_dataset=tokenized_reddit_test, # Default eval (will be overridden by custom loop)
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics
@@ -188,11 +155,9 @@ def main():
     # 7. Final Comprehensive Evaluation
     print("--- Running Final Evaluation on Split Datasets ---")
     
-    # Helper to log metrics with prefix
     def log_metrics(dataset, prefix):
         print(f"Evaluating on {prefix}...")
         metrics = trainer.evaluate(dataset)
-        # Rename keys to have prefix
         new_metrics = {f"{prefix}_{k.replace('eval_', '')}": v for k, v in metrics.items()}
         wandb.log(new_metrics)
         print(f"{prefix} Metrics: {new_metrics}")

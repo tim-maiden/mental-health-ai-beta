@@ -2,7 +2,8 @@
 set -e
 
 # --- CONFIGURATION ---
-DATASET_ID="tim-maiden/mental-health-silver-labels-v2"
+WILDCHAT_DATASET_ID="tim-maiden/mental-health-silver-wildchat"
+REDDIT_SILVER_DATASET_ID="tim-maiden/mental-health-silver-reddit"
 STUDENT_MODEL_REPO="tim-maiden/mental-health-ai-models"
 STUDENT_SUBFOLDER="student_deberta_xsmall_v1"
 
@@ -23,49 +24,71 @@ if [ -z "$HF_TOKEN" ]; then
 fi
 
 # 2. Run Inference (Generate Silver Labels)
-echo "--- Step 2: Running Inference (Silver Label Generation) ---"
+echo "--- Step 2a: Inference on WildChat ---"
 
-# Check if dataset exists on Hugging Face to avoid redundant computation
-echo "Checking availability of dataset: $DATASET_ID"
-DATASET_EXISTS=$(python -c "
+# Check if WildChat Silver exists
+echo "Checking availability of dataset: $WILDCHAT_DATASET_ID"
+WILDCHAT_EXISTS=$(python -c "
 import os
 import sys
 from huggingface_hub import HfApi
 try:
     token = os.environ.get('HF_TOKEN')
-    if not token:
-        print('Warning: HF_TOKEN not found in python env', file=sys.stderr)
     api = HfApi(token=token)
-    # Check if dataset exists. Throws error if not found or unauthorized.
-    # api.dataset_info(repo_id='${DATASET_ID}', repo_type='dataset')
-    # Fix: remove repo_type argument which is causing the error
-    api.dataset_info(repo_id='${DATASET_ID}')
+    api.dataset_info(repo_id='${WILDCHAT_DATASET_ID}')
     print('true')
 except Exception as e:
-    print(f'Debug: Failed to find dataset {e}', file=sys.stderr)
     print('false')
 ")
 
-if [ "$DATASET_EXISTS" == "true" ]; then
-    echo "✅ Dataset '$DATASET_ID' found on Hugging Face."
-    echo "   Skipping inference step (Silver Label Generation)."
+if [ "$WILDCHAT_EXISTS" == "true" ]; then
+    echo "✅ Dataset '$WILDCHAT_DATASET_ID' found. Skipping WildChat inference."
 else
-    echo "⚠️ Dataset '$DATASET_ID' not found."
-    echo "   Starting inference to generate silver labels..."
-    
-    # We run inference on WildChat data using the Teacher Model from HF
-    # PROCESSING FULL DATASET (No Limit)
+    echo "⚠️ Dataset '$WILDCHAT_DATASET_ID' not found. Starting inference..."
     python scripts/inference.py \
         --wildchat \
         --batch-size 32 \
         --upload-dataset \
-        --dataset-id "$DATASET_ID" \
+        --dataset-id "$WILDCHAT_DATASET_ID" \
+        --model "$TEACHER_MODEL_REPO" \
+        --subfolder "$TEACHER_SUBFOLDER"
+fi
+
+echo "--- Step 2b: Inference on Reddit ---"
+
+# Check if Reddit Silver exists
+echo "Checking availability of dataset: $REDDIT_SILVER_DATASET_ID"
+REDDIT_EXISTS=$(python -c "
+import os
+import sys
+from huggingface_hub import HfApi
+try:
+    token = os.environ.get('HF_TOKEN')
+    api = HfApi(token=token)
+    api.dataset_info(repo_id='${REDDIT_SILVER_DATASET_ID}')
+    print('true')
+except Exception as e:
+    print('false')
+")
+
+if [ "$REDDIT_EXISTS" == "true" ]; then
+    echo "✅ Dataset '$REDDIT_SILVER_DATASET_ID' found. Skipping Reddit inference."
+else
+    echo "⚠️ Dataset '$REDDIT_SILVER_DATASET_ID' not found. Starting inference..."
+    # We downsample Reddit inference to 1M to match WildChat size roughly, saving compute
+    # This gives us ~2M total training rows (1M WildChat + 1M Reddit)
+    python scripts/inference.py \
+        --reddit \
+        --limit 1000000 \
+        --batch-size 32 \
+        --upload-dataset \
+        --dataset-id "$REDDIT_SILVER_DATASET_ID" \
         --model "$TEACHER_MODEL_REPO" \
         --subfolder "$TEACHER_SUBFOLDER"
 fi
 
 # 3. Run Training (Distillation)
-echo "--- Step 3: Training Student Model (Mixed Strategy) ---"
+echo "--- Step 3: Training Student Model (All-Silver Strategy) ---"
 python scripts/train_mixed_student.py 
 
 # 4. Upload Result
